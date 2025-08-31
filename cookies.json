@@ -1,0 +1,175 @@
+{
+  "cookies": [
+    {
+      "name": "cookiecheck",
+      "value": "1",
+      "domain": "apps.gsccca.org",
+      "path": "/",
+      "expires": -1,
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "GUID",
+      "value": "%7B6A5F6B93%2D66C2%2D497E%2DAEBE%2DD45612594633%7D",
+      "domain": ".gsccca.org",
+      "path": "/",
+      "expires": -1,
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "ASPSESSIONIDSGTSTDAR",
+      "value": "ACIMPKPAPEPMBPMOJAJGCPPP",
+      "domain": "apps.gsccca.org",
+      "path": "/",
+      "expires": -1,
+      "httpOnly": false,
+      "secure": true,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "__utmc",
+      "value": "263889946",
+      "domain": ".gsccca.org",
+      "path": "/",
+      "expires": -1,
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "__utmz",
+      "value": "263889946.1756554010.1.1.utmcsr=(direct)|utmccn=(direct)|utmcmd=(none)",
+      "domain": ".gsccca.org",
+      "path": "/",
+      "expires": 1772420330,
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "_gid",
+      "value": "GA1.2.1006422255.1756554017",
+      "domain": ".gsccca.org",
+      "path": "/",
+      "expires": 1756738735,
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "ASPSESSIONIDSGRSRACR",
+      "value": "EHFLCHMBIHBJIJGPDMAPKMDJ",
+      "domain": "apps.gsccca.org",
+      "path": "/",
+      "expires": -1,
+      "httpOnly": false,
+      "secure": true,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "ASPSESSIONIDQEQRSDDR",
+      "value": "HJFHDHMBGBMNACDBBPOACEOL",
+      "domain": "apps.gsccca.org",
+      "path": "/",
+      "expires": -1,
+      "httpOnly": false,
+      "secure": true,
+      "sameSite": "Lax"
+    },
+    {
+      "name": ".AspNetCore.Session",
+      "value": "CfDJ8KkdxdGyaFJApGTXjdVP1TAKBE1Cr0FvZ32PqSLNnBOpzlVRAQv5xeaPnSNznF1cHubd6VBPmf5Cj85ZbWF0RZhGShVy%2B1RJtqYzyjBmEsenpm1mbIpuH87keXvoqqDkpfQWBpwPt0oGuwvlICj93Ie2SMRxqb807qlonN%2FC5FMo",
+      "domain": "www.gsccca.org",
+      "path": "/",
+      "expires": -1,
+      "httpOnly": true,
+      "secure": false,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "_gat_gtag_UA_30712015_1",
+      "value": "1",
+      "domain": ".gsccca.org",
+      "path": "/",
+      "expires": 1756652381,
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "CustomerCommunicationApi",
+      "value": "LastVisit=8%2F31%2F2025+10%3A58%3A53+AM&Dismissed=true",
+      "domain": ".gsccca.org",
+      "path": "/",
+      "expires": 1788148795.790896,
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "ASPSESSIONIDSESSTDAQ",
+      "value": "PNELOGMBAENKGOCOMAFGBKEF",
+      "domain": "apps.gsccca.org",
+      "path": "/",
+      "expires": -1,
+      "httpOnly": false,
+      "secure": true,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "__utma",
+      "value": "263889946.1368386923.1756554010.1756648487.1756652330.10",
+      "domain": ".gsccca.org",
+      "path": "/",
+      "expires": 1791212330.01408,
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "__utmt",
+      "value": "1",
+      "domain": ".gsccca.org",
+      "path": "/",
+      "expires": 1756652930,
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "__utmb",
+      "value": "263889946.1.10.1756652330",
+      "domain": ".gsccca.org",
+      "path": "/",
+      "expires": 1756654130,
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "_ga_SV1BEGDXWV",
+      "value": "GS2.1.s1756652317$o10$g1$t1756652335$j42$l0$h0",
+      "domain": ".gsccca.org",
+      "path": "/",
+      "expires": 1791212335.380086,
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Lax"
+    },
+    {
+      "name": "_ga",
+      "value": "GA1.2.11683462.1756554015",
+      "domain": ".gsccca.org",
+      "path": "/",
+      "expires": 1791212335.388543,
+      "httpOnly": false,
+      "secure": false,
+      "sameSite": "Lax"
+    }
+  ],
+  "origins": []
+}
