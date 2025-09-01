@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import os
+import re
 import json
+import math
 import random
 import asyncio
 import traceback
 import pandas as pd
+import requests
 import openpyxl
 
 from pathlib import Path
@@ -416,18 +419,17 @@ class GSCCCAScraper:
             if not self.results:
                 print("[WARN] No results to save.")
                 return
+            if isinstance(self.results[0], dict):
+                df = pd.DataFrame(self.results)
+            else:
+                df = pd.DataFrame({"Data": self.results})
 
-            with pd.ExcelWriter(filename, engine="openpyxl") as writer:
-                if isinstance(self.results[0], dict):
-                    df = pd.DataFrame(self.results)
-                    df.to_excel(writer, sheet_name="Documents", index=False)
-                else:
-                    df = pd.DataFrame({"Data": self.results})
-                    df.to_excel(writer, sheet_name="Results", index=False)
-
+            df.to_excel(filename, index=False, engine="openpyxl")
             print(f"[INFO] Results saved to {filename}")
+
         except Exception as e:
             print(f"[ERROR] Failed to save results: {e}")
+
 
     async def scrape(self, page_url: str) -> Dict[str, Any]:
         """Open *url* in the current page and return latest post data."""
