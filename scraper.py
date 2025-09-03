@@ -331,9 +331,9 @@ class GSCCCAScraper:
 
 
     async def parse_rp_detail(self):
-        """ Helper: Parse lienfinal.asp detail page with BeautifulSoup """
+        """ Helper: Parse lienfinal.asp detail page with BeautifulSoup + Viewer URL """
         await self.page.wait_for_load_state("domcontentloaded", timeout=15000)
-        await asyncio.sleep(1.5) 
+        await asyncio.sleep(1.5)
         html = await self.page.content()
         soup = BeautifulSoup(html, "html.parser")
         data = {}
@@ -341,6 +341,7 @@ class GSCCCAScraper:
         def safe_text(el):
             return el.get_text(" ", strip=True) if el else ""
 
+        # ---------- Normal Data Extraction ----------
         header_table = soup.find("table", cellpadding="2")
         if header_table:
             rows = header_table.find_all("tr")
@@ -352,10 +353,10 @@ class GSCCCAScraper:
                     data[key] = val
                 elif len(cells) == 1:
                     data["Extra Info"] = safe_text(cells[0])
-                    
+
         doc_table = soup.find("table", width="800", cellpadding="0", cellspacing="0")
         if doc_table:
-            rows = doc_table.find_all("tr")[1:] 
+            rows = doc_table.find_all("tr")[1:]
             if rows:
                 cols = [safe_text(td) for td in rows[0].find_all("td")]
                 if len(cols) >= 6:
@@ -378,13 +379,13 @@ class GSCCCAScraper:
         if debtor_table:
             tbody = debtor_table.find_parent("table")
             debtors = [safe_text(td) for td in tbody.find_all("td")[1:]]
-            data["Debtors"] = "; ".join(debtors)
+            data["Direct Party (Debtor)"] = "; ".join(debtors)
 
         claimant_table = soup.find("td", string=lambda t: t and "Reverse Party (Claimant)" in t)
         if claimant_table:
             tbody = claimant_table.find_parent("table")
             claimants = [safe_text(td) for td in tbody.find_all("td")[1:]]
-            data["Claimants"] = "; ".join(claimants)
+            data["Reverse Party (Claimant)"] = "; ".join(claimants)
 
         cross_table = soup.find("td", string=lambda t: t and "Cross-Referenced Instruments" in t)
         if cross_table:
@@ -401,8 +402,31 @@ class GSCCCAScraper:
         if record_info:
             data["Record Added"] = safe_text(record_info)
 
-        return data
+        viewer_script = soup.find("script", string=lambda t: t and "ViewImage" in t)
+        if viewer_script:
+            script_text = viewer_script.string
+            # Example inside script:
+            # var user = 835908; var county = "64"; var book = "182"; var page = "124"; var appid = 3; var iLienID = 24526103;
+            import re
+            match = re.search(r'var iLienID\s*=\s*(\d+);', script_text)
+            if match:
+                lien_id = match.group(1)
+                county = re.search(r'var county\s*=\s*"(\d+)"', script_text).group(1)
+                book = re.search(r'var book\s*=\s*"(\d+)"', script_text).group(1)
+                page = re.search(r'var page\s*=\s*"(\d+)"', script_text).group(1)
+                userid = re.search(r'var user\s*=\s*(\d+)', script_text).group(1)
+                appid = re.search(r'var appid\s*=\s*(\d+)', script_text).group(1)
 
+                viewer_url = f"https://search.gsccca.org/Imaging/HTML5Viewer.aspx?id={lien_id}&key1={book}&key2={page}&county={county}&userid={userid}&appid={appid}"
+                data["PDF Document URL"] = viewer_url
+                print(f"[INFO] Viewer URL captured → {viewer_url}")
+            else:
+                data["PDF Document URL"] = ""
+        else:
+            data["PDF Document URL"] = ""
+            print(f"[WARNING] Viewer script not found")
+
+        return data
 
     def save_to_excel(self, filename="LienResults.xlsx"):
         """ Save scraped results to Excel """
@@ -417,7 +441,8 @@ class GSCCCAScraper:
             "County", "Instrument", "Date Filed", "Time", "Book", "Page",
             "Description", "Sec/GMD", "District", "Land Lot", "Subdivision",
             "Unit", "Block", "Lot", "Comment",
-            "Debtors", "Claimants", "Cross-Referenced Instruments", "Record Added"
+            "Direct Party (Debtor)", "Reverse Party (Claimant)", "Cross-Referenced Instruments", "Record Added",
+            "PDF Document URL" 
         ]
 
         for col in columns:
@@ -427,8 +452,6 @@ class GSCCCAScraper:
         df = df[columns]  
         df.to_excel(filename, index=False)
         print(f"[INFO] Saved {len(df)} records to {filename}")
-
-
 
 
 
