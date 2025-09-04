@@ -10,6 +10,12 @@ import traceback
 import pandas as pd
 import requests
 import openpyxl
+import img2pdf
+import aiohttp
+import ssl
+import certifi
+
+
 
 from pathlib import Path
 from PIL import Image
@@ -54,6 +60,11 @@ class GSCCCAScraper:
         self.login_url = "https://apps.gsccca.org/login.asp"
         self.name_search_url = "https://search.gsccca.org/Lien/namesearch.asp"
         self.results = []
+
+        # SSL Context for aiohttp
+        self.ssl_context = ssl.create_default_context(cafile=certifi.where())
+        
+
 
     def time_sleep(self, a: int = 2500, b: int = 5000) -> int:
         return random.uniform(a, b)
@@ -241,36 +252,33 @@ class GSCCCAScraper:
     async def process_rp_details(self):
         """ Step 5: Process all RP buttons, extract data and save """
         self.results = []
-        visited_pages = set() 
+        visited_pages = set()
 
         while True:
-            page_id_elem = await self.page.query_selector("span.currentPage")
-            if page_id_elem:
-                page_id = await page_id_elem.inner_text()
-            else:
-                page_id = hash(await self.page.content())
-
-            if page_id in visited_pages:
-                print(f"[INFO] Duplicate page detected → already visited. Stopping loop.")
-                break
-            visited_pages.add(page_id)
-            
+            # Unique marker: first RP link href
             rp_links = await self.page.query_selector_all("a[href*='lienfinal']")
-            total = len(rp_links)
-            print(f"[INFO] Found {total} RP buttons on this page")
-
-            if total == 0:
+            if not rp_links:
                 print("[WARNING] No RP buttons found on this page")
                 break
 
-            for i in range(total):
+            first_link = await rp_links[0].get_attribute("href")
+            if first_link in visited_pages:
+                print(f"[INFO] Duplicate page detected → already visited. Stopping loop.")
+                break
+            visited_pages.add(first_link)
+
+            total = len(rp_links)
+            print(f"[INFO] Found {total} RP buttons on this page")
+
+            for i in range(min(5, total)):  # sirf 5 records for demo
                 try:
                     rp_links = await self.page.query_selector_all("a[href*='lienfinal']")
                     if i >= len(rp_links):
-                        print(f"[WARNING] Skipping index {i}, only {len(rp_links)} links available")
                         continue
 
                     link = rp_links[i]
+
+                    # Click with retry
                     retries = 3
                     for attempt in range(retries):
                         try:
@@ -286,16 +294,13 @@ class GSCCCAScraper:
                     data = await self.parse_rp_detail()
                     if data:
                         self.results.append(data)
-
                         print(f"[SUCCESS] Saved RP index {i+1} → "
                               f"{data.get('Name Selected','N/A')} | "
                               f"Book={data.get('Book','')} Page={data.get('Page','')}")
+                        pd.DataFrame(self.results).to_excel("LienResults.xlsx", index=False)
 
-                        df = pd.DataFrame(self.results)
-                        df.to_excel("LienResults.xlsx", index=False)
-
-                    await asyncio.sleep(3)
-                    
+                    # back
+                    await asyncio.sleep(2)
                     back_btn = await self.page.query_selector("input[name='bBack']")
                     if back_btn:
                         await back_btn.click()
@@ -313,7 +318,8 @@ class GSCCCAScraper:
                         pass
                     continue
 
-            next_page = await self.page.query_selector("a[href*='page=']")
+            # Pagination: look for "Next" explicitly
+            next_page = await self.page.query_selector("a:has-text('Next')")
             if next_page:
                 print("[INFO] Going to next page...")
                 try:
@@ -323,15 +329,15 @@ class GSCCCAScraper:
                     print(f"[ERROR] Pagination failed: {e}")
                     break
             else:
+                print("[INFO] No more pages found.")
                 break
 
         self.save_to_excel("LienResults.xlsx")
 
 
 
-
     async def parse_rp_detail(self):
-        """ Helper: Parse lienfinal.asp detail page with BeautifulSoup + Viewer URL """
+        """ Helper: Parse lienfinal.asp detail page with BeautifulSoup + Viewer URL + Single Page PDF """
         await self.page.wait_for_load_state("domcontentloaded", timeout=15000)
         await asyncio.sleep(1.5)
         html = await self.page.content()
@@ -402,31 +408,76 @@ class GSCCCAScraper:
         if record_info:
             data["Record Added"] = safe_text(record_info)
 
+        # ---------- Viewer URL + Single Page PDF ----------
         viewer_script = soup.find("script", string=lambda t: t and "ViewImage" in t)
         if viewer_script:
             script_text = viewer_script.string
-            # Example inside script:
-            # var user = 835908; var county = "64"; var book = "182"; var page = "124"; var appid = 3; var iLienID = 24526103;
-            import re
             match = re.search(r'var iLienID\s*=\s*(\d+);', script_text)
             if match:
                 lien_id = match.group(1)
                 county = re.search(r'var county\s*=\s*"(\d+)"', script_text).group(1)
                 book = re.search(r'var book\s*=\s*"(\d+)"', script_text).group(1)
-                page = re.search(r'var page\s*=\s*"(\d+)"', script_text).group(1)
+                page_num = re.search(r'var page\s*=\s*"(\d+)"', script_text).group(1)
                 userid = re.search(r'var user\s*=\s*(\d+)', script_text).group(1)
                 appid = re.search(r'var appid\s*=\s*(\d+)', script_text).group(1)
 
-                viewer_url = f"https://search.gsccca.org/Imaging/HTML5Viewer.aspx?id={lien_id}&key1={book}&key2={page}&county={county}&userid={userid}&appid={appid}"
+                viewer_url = (
+                    f"https://search.gsccca.org/Imaging/HTML5Viewer.aspx?"
+                    f"id={lien_id}&key1={book}&key2={page_num}&county={county}&userid={userid}&appid={appid}"
+                )
                 data["PDF Document URL"] = viewer_url
                 print(f"[INFO] Viewer URL captured → {viewer_url}")
+
+                # ---------- PDF File Name ----------
+                debtor_name = data.get("Direct Party (Debtor)", "UnknownDebtor").split(";")[0][:40]
+                debtor_name = debtor_name.replace(" ", "_").replace(",", "")
+                pdf_name = f"{debtor_name}_Page{page_num}.pdf"
+
+                download_dir = "downloads"
+                os.makedirs(download_dir, exist_ok=True)
+                pdf_path = os.path.join(download_dir, pdf_name)
+
+                try:
+                    popup = await self.page.context.new_page()
+                    await popup.goto(viewer_url, timeout=30000)
+                    await popup.wait_for_load_state("domcontentloaded")
+                    await asyncio.sleep(3)
+
+                    # Actual single page from canvas
+                    await popup.wait_for_selector("div.vtm_imageClipper canvas", timeout=10000)
+                    canvas = await popup.query_selector("div.vtm_imageClipper canvas")
+
+                    if canvas:
+                        tmp_img = os.path.join(download_dir, f"tmp_{page_num}.png")
+                        await canvas.screenshot(path=tmp_img)
+
+                        # Convert single PNG to PDF
+                        with open(pdf_path, "wb") as f:
+                            f.write(img2pdf.convert([tmp_img]))
+
+                        data["PDF"] = pdf_name
+                        print(f" PDF saved (single page) → {pdf_path}")
+
+                        os.remove(tmp_img)
+                    else:
+                        print("[WARNING] No canvas found in popup")
+                        data["PDF"] = ""
+
+                    await popup.close()
+
+                except Exception as e:
+                    print(f"[ERROR] PDF generation failed: {e}")
+                    data["PDF"] = ""
             else:
                 data["PDF Document URL"] = ""
+                data["PDF"] = ""
         else:
             data["PDF Document URL"] = ""
-            print(f"[WARNING] Viewer script not found")
+            data["PDF"] = ""
 
         return data
+
+
 
     def save_to_excel(self, filename="LienResults.xlsx"):
         """ Save scraped results to Excel """
@@ -441,15 +492,16 @@ class GSCCCAScraper:
             "County", "Instrument", "Date Filed", "Time", "Book", "Page",
             "Description", "Sec/GMD", "District", "Land Lot", "Subdivision",
             "Unit", "Block", "Lot", "Comment",
-            "Direct Party (Debtor)", "Reverse Party (Claimant)", "Cross-Referenced Instruments", "Record Added",
-            "PDF Document URL" 
+            "Direct Party (Debtor)", "Reverse Party (Claimant)", 
+            "Cross-Referenced Instruments", "Record Added",
+            "PDF Document URL", "PDF"  
         ]
 
         for col in columns:
             if col not in df.columns:
                 df[col] = ""
 
-        df = df[columns]  
+        df = df[columns]
         df.to_excel(filename, index=False)
         print(f"[INFO] Saved {len(df)} records to {filename}")
 
