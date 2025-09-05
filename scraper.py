@@ -14,7 +14,8 @@ import img2pdf
 import aiohttp
 import ssl
 import certifi
-
+import pytesseract
+import cv2
 
 
 from pathlib import Path
@@ -28,6 +29,10 @@ from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
 load_dotenv()
 console = Console()
+
+if os.name == "nt":  # Windows
+    pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+
 
 # ---------- config -------------------------------------------------------------
 HEADLESS = False 
@@ -337,7 +342,7 @@ class GSCCCAScraper:
 
 
     async def parse_rp_detail(self):
-        """ Helper: Parse lienfinal.asp detail page with BeautifulSoup + Viewer URL + Single Page PDF """
+        """ Helper: Parse lienfinal.asp detail page with BeautifulSoup + Viewer URL + Single Page PDF + OCR """
         await self.page.wait_for_load_state("domcontentloaded", timeout=15000)
         await asyncio.sleep(1.5)
         html = await self.page.content()
@@ -456,27 +461,41 @@ class GSCCCAScraper:
                             f.write(img2pdf.convert([tmp_img]))
 
                         data["PDF"] = pdf_name
-                        print(f" PDF saved (single page) → {pdf_path}")
+                        print(f" [INFO] PDF saved (single page) → {pdf_path}")
+
+                        # -----------  OCR Extraction -----------
+                        try:
+                            img = Image.open(tmp_img).convert("L")  # grayscale
+                            text = pytesseract.image_to_string(img, lang="eng")
+                            data["OCR_Text"] = text.strip()
+                            print(f" [OCR] OCR extracted → {len(text.split())} words")
+                        except Exception as e:
+                            print(f"[ERROR] OCR extraction failed: {e}")
+                            data["OCR_Text"] = ""
+                        # ----------------------------------------
 
                         os.remove(tmp_img)
                     else:
                         print("[WARNING] No canvas found in popup")
                         data["PDF"] = ""
+                        data["OCR_Text"] = ""
 
                     await popup.close()
 
                 except Exception as e:
                     print(f"[ERROR] PDF generation failed: {e}")
                     data["PDF"] = ""
+                    data["OCR_Text"] = ""
             else:
                 data["PDF Document URL"] = ""
                 data["PDF"] = ""
+                data["OCR_Text"] = ""
         else:
             data["PDF Document URL"] = ""
             data["PDF"] = ""
+            data["OCR_Text"] = ""
 
         return data
-
 
 
     def save_to_excel(self, filename="LienResults.xlsx"):
@@ -494,7 +513,7 @@ class GSCCCAScraper:
             "Unit", "Block", "Lot", "Comment",
             "Direct Party (Debtor)", "Reverse Party (Claimant)", 
             "Cross-Referenced Instruments", "Record Added",
-            "PDF Document URL", "PDF"  
+            "PDF Document URL", "PDF", "OCR_Text"
         ]
 
         for col in columns:
