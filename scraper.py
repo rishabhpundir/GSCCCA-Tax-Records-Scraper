@@ -16,6 +16,7 @@ import ssl
 import certifi
 import pytesseract
 import cv2
+from datetime import datetime
 
 
 from pathlib import Path
@@ -341,8 +342,10 @@ class GSCCCAScraper:
 
 
 
+
+
     async def parse_rp_detail(self):
-        """ Helper: Parse lienfinal.asp detail page with BeautifulSoup + Viewer URL + Single Page PDF + OCR """
+        """ Helper: Parse lienfinal.asp detail page with BeautifulSoup + Viewer URL + Single Page PDF + OCR + Address1/2 + Zipcode1/2 """
         await self.page.wait_for_load_state("domcontentloaded", timeout=15000)
         await asyncio.sleep(1.5)
         html = await self.page.content()
@@ -413,6 +416,54 @@ class GSCCCAScraper:
         if record_info:
             data["Record Added"] = safe_text(record_info)
 
+        # ---------- helper: extract up to 2 addresses (Address1, Address2) ----------
+        def extract_addresses_from_ocr(text, max_addresses=2):
+            """
+            Return list of dicts: [{'address': ..., 'zipcode': ...}, ...] length == max_addresses (padded).
+            Logic: look for lines that contain 'City, ST 12345' pattern (2-letter state + 5-digit zip),
+            then take preceding non-header line(s) as street line when available.
+            """
+            lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+            addresses = []
+
+            for idx, ln in enumerate(lines):
+                # match city/state + zip (e.g. "MABLETON, GA 30126" or "Calhoun, GA 30701")
+                m = re.search(r'([A-Za-z][A-Za-z0-9\.\'&\-\s]+,\s*[A-Za-z]{2}\s*\d{5})', ln)
+                if m:
+                    city_state_zip = m.group(1).strip()
+                    # look upward for a plausible street line (up to 3 lines above)
+                    street = ""
+                    for j in range(1, 4):
+                        if idx - j < 0:
+                            break
+                        prev = lines[idx - j]
+                        # skip obvious header/labels
+                        if re.search(r'\b(County|Tax|Commissioner|Recorded|Doc:|Rept#|VS\b|Defendant|GRANT|PAYMENT|TOTAL DUE|PHONE|TEL|Fax)\b', prev, re.I):
+                            continue
+                        # prefer lines with street numbers or common address tokens
+                        if re.search(r'^\d+\s', prev) or re.search(r'\b(St(reet)?|Street|Rd(?!\w)|Road|Highway|HWY|Ave|Avenue|Blvd|Lane|Ln|Dr(?!\w)|Drive|Way|Court|Ct|Parkway|PKWY|Memorial|HWY|HW|HWY|WY|SW|NE|N\.E\.|S\.W\.)\b', prev, re.I) or re.search(r'\d', prev):
+                            street = prev
+                            break
+                        # fallback: take the nearest non-header line
+                        if not re.search(r'^\b(Grant|GORDON|GORDON COUNTY|SCOTT|LIEN|LIEN Bk|TOTAL|PAYMENT)\b', prev, re.I):
+                            street = prev
+                            break
+
+                    full_address = (street + " " + city_state_zip).strip() if street else city_state_zip
+                    zip_m = re.search(r'(\d{5})$', city_state_zip)
+                    zipcode = zip_m.group(1) if zip_m else ""
+                    addresses.append({"address": full_address, "zipcode": zipcode})
+
+                    if len(addresses) >= max_addresses:
+                        break
+
+            # pad to desired length
+            while len(addresses) < max_addresses:
+                addresses.append({"address": "", "zipcode": ""})
+
+            return addresses
+        # -------------------------------------------------------------------------
+
         # ---------- Viewer URL + Single Page PDF ----------
         viewer_script = soup.find("script", string=lambda t: t and "ViewImage" in t)
         if viewer_script:
@@ -446,7 +497,7 @@ class GSCCCAScraper:
                     popup = await self.page.context.new_page()
                     await popup.goto(viewer_url, timeout=30000)
                     await popup.wait_for_load_state("domcontentloaded")
-                    await asyncio.sleep(3)
+                    await asyncio.sleep(2)  # let canvas render
 
                     # Actual single page from canvas
                     await popup.wait_for_selector("div.vtm_imageClipper canvas", timeout=10000)
@@ -463,22 +514,38 @@ class GSCCCAScraper:
                         data["PDF"] = pdf_name
                         print(f" [INFO] PDF saved (single page) → {pdf_path}")
 
-                        # -----------  OCR Extraction -----------
+                        # ----------- OCR Extraction + Address1/2 -----------
                         try:
-                            img = Image.open(tmp_img).convert("L")  # grayscale
+                            img = Image.open(tmp_img).convert("L")
                             text = pytesseract.image_to_string(img, lang="eng")
                             data["OCR_Text"] = text.strip()
                             print(f" [OCR] OCR extracted → {len(text.split())} words")
+
+                            # extract up to 2 addresses
+                            addr_list = extract_addresses_from_ocr(data["OCR_Text"], max_addresses=2)
+                            data["Address1"] = addr_list[0]["address"]
+                            data["Zipcode1"] = addr_list[0]["zipcode"]
+                            data["Address2"] = addr_list[1]["address"]
+                            data["Zipcode2"] = addr_list[1]["zipcode"]
+
                         except Exception as e:
                             print(f"[ERROR] OCR extraction failed: {e}")
                             data["OCR_Text"] = ""
-                        # ----------------------------------------
+                            data["Address1"] = ""
+                            data["Zipcode1"] = ""
+                            data["Address2"] = ""
+                            data["Zipcode2"] = ""
+                        # ----------------------------------------------------
 
                         os.remove(tmp_img)
                     else:
                         print("[WARNING] No canvas found in popup")
                         data["PDF"] = ""
                         data["OCR_Text"] = ""
+                        data["Address1"] = ""
+                        data["Zipcode1"] = ""
+                        data["Address2"] = ""
+                        data["Zipcode2"] = ""
 
                     await popup.close()
 
@@ -486,20 +553,32 @@ class GSCCCAScraper:
                     print(f"[ERROR] PDF generation failed: {e}")
                     data["PDF"] = ""
                     data["OCR_Text"] = ""
+                    data["Address1"] = ""
+                    data["Zipcode1"] = ""
+                    data["Address2"] = ""
+                    data["Zipcode2"] = ""
             else:
                 data["PDF Document URL"] = ""
                 data["PDF"] = ""
                 data["OCR_Text"] = ""
+                data["Address1"] = ""
+                data["Zipcode1"] = ""
+                data["Address2"] = ""
+                data["Zipcode2"] = ""
         else:
             data["PDF Document URL"] = ""
             data["PDF"] = ""
             data["OCR_Text"] = ""
+            data["Address1"] = ""
+            data["Zipcode1"] = ""
+            data["Address2"] = ""
+            data["Zipcode2"] = ""
 
         return data
 
 
     def save_to_excel(self, filename="LienResults.xlsx"):
-        """ Save scraped results to Excel """
+        """ Save scraped results to Excel. Creates timestamped filename to avoid permission issues. """
         if not hasattr(self, "results") or not self.results:
             print("[WARNING] No results to save")
             return
@@ -507,13 +586,13 @@ class GSCCCAScraper:
         df = pd.DataFrame(self.results)
 
         columns = [
-            "Name Selected", "Searched", "User Selected Dates", "County Good From", "Query Made",
+            "Direct Party (Debtor)", "Reverse Party (Claimant)", "Address1", "Zipcode1", "Address2", "Zipcode2", "Name Selected", "Searched", "User Selected Dates", "County Good From", "Query Made",
             "County", "Instrument", "Date Filed", "Time", "Book", "Page",
             "Description", "Sec/GMD", "District", "Land Lot", "Subdivision",
             "Unit", "Block", "Lot", "Comment",
-            "Direct Party (Debtor)", "Reverse Party (Claimant)", 
             "Cross-Referenced Instruments", "Record Added",
-            "PDF Document URL", "PDF", "OCR_Text"
+            "PDF Document URL", "PDF", "OCR_Text",
+            
         ]
 
         for col in columns:
@@ -521,8 +600,14 @@ class GSCCCAScraper:
                 df[col] = ""
 
         df = df[columns]
-        df.to_excel(filename, index=False)
-        print(f"[INFO] Saved {len(df)} records to {filename}")
+        # create timestamped filename to reduce "Permission denied" when Excel is open
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        base, ext = os.path.splitext(filename)
+        final_filename = f"{base}_{ts}{ext}"
+
+        df.to_excel(final_filename, index=False)
+        print(f"[INFO] Saved {len(df)} records to {final_filename}")
+
 
 
 
