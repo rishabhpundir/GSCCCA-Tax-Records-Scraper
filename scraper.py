@@ -17,8 +17,9 @@ import certifi
 import pytesseract
 import cv2
 from datetime import datetime
+import os
 
-
+from rapidfuzz import fuzz, process
 from pathlib import Path
 from PIL import Image
 from bs4 import BeautifulSoup
@@ -339,13 +340,14 @@ class GSCCCAScraper:
                 break
 
         self.save_to_excel("LienResults.xlsx")
-
+        
+        
 
 
 
 
     async def parse_rp_detail(self):
-        """ Helper: Parse lienfinal.asp detail page with BeautifulSoup + Viewer URL + Single Page PDF + OCR + Address1/2 + Zipcode1/2 """
+        """ Helper: Parse lienfinal.asp detail page with BeautifulSoup + Viewer URL + Single Page PDF + OCR + Address2 + Zipcode2 + Total Due """
         await self.page.wait_for_load_state("domcontentloaded", timeout=15000)
         await asyncio.sleep(1.5)
         html = await self.page.content()
@@ -354,6 +356,34 @@ class GSCCCAScraper:
 
         def safe_text(el):
             return el.get_text(" ", strip=True) if el else ""
+
+        # ---------- helper: extract TOTAL DUE ----------
+        def extract_total_due(text: str) -> str:
+            lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+            best_line = ""
+            best_score = 0
+
+            for ln in lines:
+                score = fuzz.partial_ratio("TOTAL DUE", ln.upper())
+                if score > best_score:
+                    best_score = score
+                    best_line = ln
+
+            # Debug
+            print(f"Best match line: {best_line} (score={best_score})")
+
+            if best_score >= 60:  # fuzzy threshold
+                # try regex for dollar amounts
+                m = re.search(r"\$?\s*([\d,]+\.\d{2})", best_line)
+                if m:
+                    return m.group(1)
+
+            # fallback: global regex search in full text
+            m2 = re.search(r"TOT[A-Z0-9\s]*DUE[:\s]*\$?\s*([\d,]+\.\d{2})", text, re.IGNORECASE)
+            if m2:
+                return m2.group(1)
+
+            return "Not Found"
 
         # ---------- Normal Data Extraction ----------
         header_table = soup.find("table", cellpadding="2")
@@ -416,36 +446,26 @@ class GSCCCAScraper:
         if record_info:
             data["Record Added"] = safe_text(record_info)
 
-        # ---------- helper: extract up to 2 addresses (Address1, Address2) ----------
+        # ---------- helper: extract up to 2 addresses (Address2) ----------
         def extract_addresses_from_ocr(text, max_addresses=2):
-            """
-            Return list of dicts: [{'address': ..., 'zipcode': ...}, ...] length == max_addresses (padded).
-            Logic: look for lines that contain 'City, ST 12345' pattern (2-letter state + 5-digit zip),
-            then take preceding non-header line(s) as street line when available.
-            """
             lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
             addresses = []
 
             for idx, ln in enumerate(lines):
-                # match city/state + zip (e.g. "MABLETON, GA 30126" or "Calhoun, GA 30701")
                 m = re.search(r'([A-Za-z][A-Za-z0-9\.\'&\-\s]+,\s*[A-Za-z]{2}\s*\d{5})', ln)
                 if m:
                     city_state_zip = m.group(1).strip()
-                    # look upward for a plausible street line (up to 3 lines above)
                     street = ""
                     for j in range(1, 4):
                         if idx - j < 0:
                             break
                         prev = lines[idx - j]
-                        # skip obvious header/labels
                         if re.search(r'\b(County|Tax|Commissioner|Recorded|Doc:|Rept#|VS\b|Defendant|GRANT|PAYMENT|TOTAL DUE|PHONE|TEL|Fax)\b', prev, re.I):
                             continue
-                        # prefer lines with street numbers or common address tokens
-                        if re.search(r'^\d+\s', prev) or re.search(r'\b(St(reet)?|Street|Rd(?!\w)|Road|Highway|HWY|Ave|Avenue|Blvd|Lane|Ln|Dr(?!\w)|Drive|Way|Court|Ct|Parkway|PKWY|Memorial|HWY|HW|HWY|WY|SW|NE|N\.E\.|S\.W\.)\b', prev, re.I) or re.search(r'\d', prev):
+                        if re.search(r'^\d+\s', prev) or re.search(r'\b(St(reet)?|Street|Rd|Road|Ave|Avenue|Blvd|Ln|Lane|Dr|Drive|Way|Ct|Court|PKWY|Parkway)\b', prev, re.I):
                             street = prev
                             break
-                        # fallback: take the nearest non-header line
-                        if not re.search(r'^\b(Grant|GORDON|GORDON COUNTY|SCOTT|LIEN|LIEN Bk|TOTAL|PAYMENT)\b', prev, re.I):
+                        if not re.search(r'^\b(Grant|GORDON|LIEN|TOTAL|PAYMENT)\b', prev, re.I):
                             street = prev
                             break
 
@@ -457,14 +477,13 @@ class GSCCCAScraper:
                     if len(addresses) >= max_addresses:
                         break
 
-            # pad to desired length
             while len(addresses) < max_addresses:
                 addresses.append({"address": "", "zipcode": ""})
 
             return addresses
         # -------------------------------------------------------------------------
 
-        # ---------- Viewer URL + Single Page PDF ----------
+        # ---------- Viewer URL + Single Page PDF + OCR ----------
         viewer_script = soup.find("script", string=lambda t: t and "ViewImage" in t)
         if viewer_script:
             script_text = viewer_script.string
@@ -497,9 +516,8 @@ class GSCCCAScraper:
                     popup = await self.page.context.new_page()
                     await popup.goto(viewer_url, timeout=30000)
                     await popup.wait_for_load_state("domcontentloaded")
-                    await asyncio.sleep(2)  # let canvas render
+                    await asyncio.sleep(2)
 
-                    # Actual single page from canvas
                     await popup.wait_for_selector("div.vtm_imageClipper canvas", timeout=10000)
                     canvas = await popup.query_selector("div.vtm_imageClipper canvas")
 
@@ -507,45 +525,50 @@ class GSCCCAScraper:
                         tmp_img = os.path.join(download_dir, f"tmp_{page_num}.png")
                         await canvas.screenshot(path=tmp_img)
 
-                        # Convert single PNG to PDF
                         with open(pdf_path, "wb") as f:
                             f.write(img2pdf.convert([tmp_img]))
 
                         data["PDF"] = pdf_name
                         print(f" [INFO] PDF saved (single page) → {pdf_path}")
 
-                        # ----------- OCR Extraction + Address1/2 -----------
+                        # ----------- OCR Extraction + Address2 + TOTAL DUE -----------
                         try:
                             img = Image.open(tmp_img).convert("L")
                             text = pytesseract.image_to_string(img, lang="eng")
                             data["OCR_Text"] = text.strip()
                             print(f" [OCR] OCR extracted → {len(text.split())} words")
 
-                            # extract up to 2 addresses
                             addr_list = extract_addresses_from_ocr(data["OCR_Text"], max_addresses=2)
-                            data["Address1"] = addr_list[0]["address"]
-                            data["Zipcode1"] = addr_list[0]["zipcode"]
+                            # data["Address1"] = addr_list[0]["address"]
+                            # data["Zipcode1"] = addr_list[0]["zipcode"]
                             data["Address2"] = addr_list[1]["address"]
                             data["Zipcode2"] = addr_list[1]["zipcode"]
+
+                            # use helper function for TOTAL DUE
+                            data["Total Due"] = extract_total_due(data["OCR_Text"])
+
 
                         except Exception as e:
                             print(f"[ERROR] OCR extraction failed: {e}")
                             data["OCR_Text"] = ""
-                            data["Address1"] = ""
-                            data["Zipcode1"] = ""
+                            # data["Address1"] = ""
+                            # data["Zipcode1"] = ""
                             data["Address2"] = ""
                             data["Zipcode2"] = ""
-                        # ----------------------------------------------------
+                            data["Total Due"] = ""
 
-                        os.remove(tmp_img)
+                        finally:
+                            os.remove(tmp_img)
+
                     else:
                         print("[WARNING] No canvas found in popup")
                         data["PDF"] = ""
                         data["OCR_Text"] = ""
-                        data["Address1"] = ""
-                        data["Zipcode1"] = ""
+                        # data["Address1"] = ""
+                        # data["Zipcode1"] = ""
                         data["Address2"] = ""
                         data["Zipcode2"] = ""
+                        data["Total Due"] = ""
 
                     await popup.close()
 
@@ -553,32 +576,40 @@ class GSCCCAScraper:
                     print(f"[ERROR] PDF generation failed: {e}")
                     data["PDF"] = ""
                     data["OCR_Text"] = ""
-                    data["Address1"] = ""
-                    data["Zipcode1"] = ""
+                    # data["Address1"] = ""
+                    # data["Zipcode1"] = ""
                     data["Address2"] = ""
                     data["Zipcode2"] = ""
+                    data["Total Due"] = ""
             else:
                 data["PDF Document URL"] = ""
                 data["PDF"] = ""
                 data["OCR_Text"] = ""
-                data["Address1"] = ""
-                data["Zipcode1"] = ""
+                # data["Address1"] = ""
+                # data["Zipcode1"] = ""
                 data["Address2"] = ""
                 data["Zipcode2"] = ""
+                data["Total Due"] = ""
         else:
             data["PDF Document URL"] = ""
             data["PDF"] = ""
             data["OCR_Text"] = ""
-            data["Address1"] = ""
-            data["Zipcode1"] = ""
+            # data["Address1"] = ""
+            # data["Zipcode1"] = ""
             data["Address2"] = ""
             data["Zipcode2"] = ""
+            data["Total Due"] = ""
 
         return data
 
 
+
     def save_to_excel(self, filename="LienResults.xlsx"):
-        """ Save scraped results to Excel. Creates timestamped filename to avoid permission issues. """
+        """ Save scraped results to Excel. Creates timestamped filename to avoid permission issues.
+            Also adds clickable PDF hyperlinks in Excel.
+        """
+        import os
+        
         if not hasattr(self, "results") or not self.results:
             print("[WARNING] No results to save")
             return
@@ -586,13 +617,14 @@ class GSCCCAScraper:
         df = pd.DataFrame(self.results)
 
         columns = [
-            "Direct Party (Debtor)", "Reverse Party (Claimant)", "Address1", "Zipcode1", "Address2", "Zipcode2", "Name Selected", "Searched", "User Selected Dates", "County Good From", "Query Made",
+            "Direct Party (Debtor)", "Reverse Party (Claimant)",
+            "Address2", "Zipcode2", "Total Due",
+            "Name Selected", "Searched", "User Selected Dates", "County Good From", "Query Made",
             "County", "Instrument", "Date Filed", "Time", "Book", "Page",
             "Description", "Sec/GMD", "District", "Land Lot", "Subdivision",
             "Unit", "Block", "Lot", "Comment",
             "Cross-Referenced Instruments", "Record Added",
             "PDF Document URL", "PDF", "OCR_Text",
-            
         ]
 
         for col in columns:
@@ -600,13 +632,35 @@ class GSCCCAScraper:
                 df[col] = ""
 
         df = df[columns]
-        # create timestamped filename to reduce "Permission denied" when Excel is open
+
+        # timestamped filename
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         base, ext = os.path.splitext(filename)
         final_filename = f"{base}_{ts}{ext}"
 
+        # Save normally first
         df.to_excel(final_filename, index=False)
-        print(f"[INFO] Saved {len(df)} records to {final_filename}")
+
+        # 🔗 Add PDF Hyperlinks using openpyxl
+        import openpyxl, os
+        wb = openpyxl.load_workbook(final_filename)
+        ws = wb.active
+
+        # find PDF column index
+        headers = {cell.value: cell.column for cell in ws[1]}
+        pdf_col = headers.get("PDF")
+
+        if pdf_col:
+            download_dir = "downloads"
+            for row in range(2, ws.max_row + 1):
+                pdf_name = ws.cell(row=row, column=pdf_col).value
+                if pdf_name:
+                    pdf_path = os.path.abspath(os.path.join(download_dir, pdf_name))
+                    # replace cell value with hyperlink formula
+                    ws.cell(row=row, column=pdf_col).value = f'=HYPERLINK("{pdf_path}", "{pdf_name}")'
+
+        wb.save(final_filename)
+        print(f"[INFO] Saved {len(df)} records to {final_filename} (with PDF links)")
 
 
 
