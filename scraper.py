@@ -110,9 +110,23 @@ class GSCCCAScraper:
 
         print(f"[LOGIN] Filling username: {email}")
         await self.page.fill("input[name='txtUserID']", email)
+        await self.page.wait_for_timeout(2000)
 
         print("[LOGIN] Filling password...")
         await self.page.fill("input[name='txtPassword']", password)
+        await self.page.wait_for_timeout(2000) 
+
+        print("[LOGIN] Checking 'Remember login details' checkbox if not already checked...")
+        checkbox = await self.page.query_selector("input[type='checkbox'][name='permanent']")
+        if checkbox:
+            is_checked = await checkbox.is_checked()
+            if not is_checked:
+                await checkbox.click()
+                print("[LOGIN] Checkbox clicked.")
+            else:
+                print("[LOGIN] Checkbox already checked.")
+        else:
+            print("[LOGIN] Checkbox not found on the page.")
 
         try:
             print("[LOGIN] Clicking login button...")
@@ -130,7 +144,10 @@ class GSCCCAScraper:
         else:
             print("[LOGIN] Login failed")
             return False
-    
+
+        
+        
+        
     async def step1_open_homepage(self):
         """Go to homepage & check if logged in."""
         print("[STEP 1] Opening homepage...")
@@ -341,10 +358,7 @@ class GSCCCAScraper:
 
         self.save_to_excel("LienResults.xlsx")
         
-        
-
-
-
+    
 
     async def parse_rp_detail(self):
         """ Helper: Parse lienfinal.asp detail page with BeautifulSoup + Viewer URL + Single Page PDF + OCR + Address2 + Zipcode2 + Total Due """
@@ -357,31 +371,33 @@ class GSCCCAScraper:
         def safe_text(el):
             return el.get_text(" ", strip=True) if el else ""
 
-        # ---------- helper: extract TOTAL DUE ----------
+        # ---------- Improved TOTAL DUE Extraction ----------
         def extract_total_due(text: str) -> str:
             lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
-            best_line = ""
-            best_score = 0
+            total_due_candidates = []
 
-            for ln in lines:
-                score = fuzz.partial_ratio("TOTAL DUE", ln.upper())
-                if score > best_score:
-                    best_score = score
-                    best_line = ln
+            for idx, ln in enumerate(lines):
+                print(f"Line {idx}: {ln}")
+                if "TOTAL DUE" in ln.upper() or "TOTAL DUE" in ln.upper().replace(" ", ""):
+                    context = " ".join(lines[max(0, idx - 1): min(len(lines), idx + 2)])
+                    amounts = re.findall(r"\$?\s*([\d,]+\.\d{2})", context)
+                    if amounts:
+                        amounts = [amt.replace(",", "") for amt in amounts]
+                        amounts = [float(amt) for amt in amounts]
+                        total_due = max(amounts)
+                        return f"{total_due:.2f}"
+                    total_due_candidates.append(context)
 
-            # Debug
-            print(f"Best match line: {best_line} (score={best_score})")
-
-            if best_score >= 60:  # fuzzy threshold
-                # try regex for dollar amounts
-                m = re.search(r"\$?\s*([\d,]+\.\d{2})", best_line)
-                if m:
-                    return m.group(1)
-
-            # fallback: global regex search in full text
             m2 = re.search(r"TOT[A-Z0-9\s]*DUE[:\s]*\$?\s*([\d,]+\.\d{2})", text, re.IGNORECASE)
             if m2:
-                return m2.group(1)
+                return m2.group(1).replace(",", "")
+
+            all_amounts = re.findall(r"\$?\s*([\d,]+\.\d{2})", text)
+            if all_amounts:
+                all_amounts = [amt.replace(",", "") for amt in all_amounts]
+                all_amounts = [float(amt) for amt in all_amounts]
+                total_due = max(all_amounts)
+                return f"{total_due:.2f}"
 
             return "Not Found"
 
@@ -446,7 +462,6 @@ class GSCCCAScraper:
         if record_info:
             data["Record Added"] = safe_text(record_info)
 
-        # ---------- helper: extract up to 2 addresses (Address2) ----------
         def extract_addresses_from_ocr(text, max_addresses=2):
             lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
             addresses = []
@@ -483,7 +498,6 @@ class GSCCCAScraper:
             return addresses
         # -------------------------------------------------------------------------
 
-        # ---------- Viewer URL + Single Page PDF + OCR ----------
         viewer_script = soup.find("script", string=lambda t: t and "ViewImage" in t)
         if viewer_script:
             script_text = viewer_script.string
@@ -501,9 +515,7 @@ class GSCCCAScraper:
                     f"id={lien_id}&key1={book}&key2={page_num}&county={county}&userid={userid}&appid={appid}"
                 )
                 data["PDF Document URL"] = viewer_url
-                print(f"[INFO] Viewer URL captured → {viewer_url}")
 
-                # ---------- PDF File Name ----------
                 debtor_name = data.get("Direct Party (Debtor)", "UnknownDebtor").split(";")[0][:40]
                 debtor_name = debtor_name.replace(" ", "_").replace(",", "")
                 pdf_name = f"{debtor_name}_Page{page_num}.pdf"
@@ -529,30 +541,20 @@ class GSCCCAScraper:
                             f.write(img2pdf.convert([tmp_img]))
 
                         data["PDF"] = pdf_name
-                        print(f" [INFO] PDF saved (single page) → {pdf_path}")
 
-                        # ----------- OCR Extraction + Address2 + TOTAL DUE -----------
                         try:
                             img = Image.open(tmp_img).convert("L")
                             text = pytesseract.image_to_string(img, lang="eng")
                             data["OCR_Text"] = text.strip()
-                            print(f" [OCR] OCR extracted → {len(text.split())} words")
 
                             addr_list = extract_addresses_from_ocr(data["OCR_Text"], max_addresses=2)
-                            # data["Address1"] = addr_list[0]["address"]
-                            # data["Zipcode1"] = addr_list[0]["zipcode"]
                             data["Address2"] = addr_list[1]["address"]
                             data["Zipcode2"] = addr_list[1]["zipcode"]
 
-                            # use helper function for TOTAL DUE
                             data["Total Due"] = extract_total_due(data["OCR_Text"])
 
-
                         except Exception as e:
-                            print(f"[ERROR] OCR extraction failed: {e}")
                             data["OCR_Text"] = ""
-                            # data["Address1"] = ""
-                            # data["Zipcode1"] = ""
                             data["Address2"] = ""
                             data["Zipcode2"] = ""
                             data["Total Due"] = ""
@@ -561,11 +563,8 @@ class GSCCCAScraper:
                             os.remove(tmp_img)
 
                     else:
-                        print("[WARNING] No canvas found in popup")
                         data["PDF"] = ""
                         data["OCR_Text"] = ""
-                        # data["Address1"] = ""
-                        # data["Zipcode1"] = ""
                         data["Address2"] = ""
                         data["Zipcode2"] = ""
                         data["Total Due"] = ""
@@ -573,20 +572,16 @@ class GSCCCAScraper:
                     await popup.close()
 
                 except Exception as e:
-                    print(f"[ERROR] PDF generation failed: {e}")
                     data["PDF"] = ""
                     data["OCR_Text"] = ""
-                    # data["Address1"] = ""
-                    # data["Zipcode1"] = ""
                     data["Address2"] = ""
                     data["Zipcode2"] = ""
                     data["Total Due"] = ""
+
             else:
                 data["PDF Document URL"] = ""
                 data["PDF"] = ""
                 data["OCR_Text"] = ""
-                # data["Address1"] = ""
-                # data["Zipcode1"] = ""
                 data["Address2"] = ""
                 data["Zipcode2"] = ""
                 data["Total Due"] = ""
@@ -594,8 +589,6 @@ class GSCCCAScraper:
             data["PDF Document URL"] = ""
             data["PDF"] = ""
             data["OCR_Text"] = ""
-            # data["Address1"] = ""
-            # data["Zipcode1"] = ""
             data["Address2"] = ""
             data["Zipcode2"] = ""
             data["Total Due"] = ""
@@ -604,12 +597,12 @@ class GSCCCAScraper:
 
 
 
+
     def save_to_excel(self, filename="LienResults.xlsx"):
         """ Save scraped results to Excel. Creates timestamped filename to avoid permission issues.
             Also adds clickable PDF hyperlinks in Excel.
         """
         import os
-        
         if not hasattr(self, "results") or not self.results:
             print("[WARNING] No results to save")
             return
