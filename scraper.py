@@ -10,7 +10,16 @@ import traceback
 import pandas as pd
 import requests
 import openpyxl
+import img2pdf
+import aiohttp
+import ssl
+import certifi
+import pytesseract
+import cv2
+from datetime import datetime
+import os
 
+from rapidfuzz import fuzz, process
 from pathlib import Path
 from PIL import Image
 from bs4 import BeautifulSoup
@@ -22,6 +31,10 @@ from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
 load_dotenv()
 console = Console()
+
+if os.name == "nt":  # Windows
+    pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+
 
 # ---------- config -------------------------------------------------------------
 HEADLESS = False 
@@ -54,6 +67,11 @@ class GSCCCAScraper:
         self.login_url = "https://apps.gsccca.org/login.asp"
         self.name_search_url = "https://search.gsccca.org/Lien/namesearch.asp"
         self.results = []
+
+        # SSL Context for aiohttp
+        self.ssl_context = ssl.create_default_context(cafile=certifi.where())
+        
+
 
     def time_sleep(self, a: int = 2500, b: int = 5000) -> int:
         return random.uniform(a, b)
@@ -92,9 +110,23 @@ class GSCCCAScraper:
 
         print(f"[LOGIN] Filling username: {email}")
         await self.page.fill("input[name='txtUserID']", email)
+        await self.page.wait_for_timeout(2000)
 
         print("[LOGIN] Filling password...")
         await self.page.fill("input[name='txtPassword']", password)
+        await self.page.wait_for_timeout(2000) 
+
+        print("[LOGIN] Checking 'Remember login details' checkbox if not already checked...")
+        checkbox = await self.page.query_selector("input[type='checkbox'][name='permanent']")
+        if checkbox:
+            is_checked = await checkbox.is_checked()
+            if not is_checked:
+                await checkbox.click()
+                print("[LOGIN] Checkbox clicked.")
+            else:
+                print("[LOGIN] Checkbox already checked.")
+        else:
+            print("[LOGIN] Checkbox not found on the page.")
 
         try:
             print("[LOGIN] Clicking login button...")
@@ -112,7 +144,10 @@ class GSCCCAScraper:
         else:
             print("[LOGIN] Login failed")
             return False
-    
+
+        
+        
+        
     async def step1_open_homepage(self):
         """Go to homepage & check if logged in."""
         print("[STEP 1] Opening homepage...")
@@ -238,197 +273,389 @@ class GSCCCAScraper:
         print(f"[HUMAN] Scrolled {y}px")
         await self.human_delay(0.5, 1.2)
 
-    async def process_all_rp(self):
-        rp_index = 0
+    async def process_rp_details(self):
+        """ Step 5: Process all RP buttons, extract data and save """
+        self.results = []
+        visited_pages = set()
+
         while True:
-            rp_links = await self.page.query_selector_all("a[href*='lienfinal.asp'] img[src*='sym_rp.gif']")
-            if rp_index >= len(rp_links):
-                print("[INFO] No more RP links found.")
+            # Unique marker: first RP link href
+            rp_links = await self.page.query_selector_all("a[href*='lienfinal']")
+            if not rp_links:
+                print("[WARNING] No RP buttons found on this page")
                 break
-            print(f"[INFO] Processing RP #{rp_index+1}")
 
-            rp_links = await self.page.query_selector_all("a[href*='lienfinal.asp'] img[src*='sym_rp.gif']")
-            rp_link = await rp_links[rp_index].evaluate_handle("node => node.parentElement")
+            first_link = await rp_links[0].get_attribute("href")
+            if first_link in visited_pages:
+                print(f"[INFO] Duplicate page detected → already visited. Stopping loop.")
+                break
+            visited_pages.add(first_link)
 
-            await rp_link.click()
-            await self.page.wait_for_load_state("domcontentloaded")
-            await self.human_delay()
+            total = len(rp_links)
+            print(f"[INFO] Found {total} RP buttons on this page")
 
-            try:
-                await self.process_rp_detail()
-            except Exception as e:
-                print(f"[ERROR] Failed inside RP {rp_index+1}: {e}")
+            for i in range(min(5, total)):  # sirf 5 records for demo
+                try:
+                    rp_links = await self.page.query_selector_all("a[href*='lienfinal']")
+                    if i >= len(rp_links):
+                        continue
 
-            back = await self.page.query_selector("input[name='bBack']")
-            if back:
-                await back.click()
-                await self.page.wait_for_load_state("domcontentloaded")
-                await self.human_delay()
+                    link = rp_links[i]
 
-            rp_index += 1
-   
-    async def scrape_documents(self):
-        """Scrape the documents table from nameselected.asp"""
-        await self.human_scroll()
-        html = await self.page.content()
-        soup = BeautifulSoup(html, "html.parser")
-        documents = []
+                    # Click with retry
+                    retries = 3
+                    for attempt in range(retries):
+                        try:
+                            await link.click()
+                            await self.page.wait_for_load_state("domcontentloaded")
+                            break
+                        except Exception as e:
+                            print(f"[ERROR] Click failed (Attempt {attempt+1}/{retries}): {e}")
+                            if attempt == retries - 1:
+                                raise
+                            await asyncio.sleep(3)
 
-        for table in soup.select("table.table_borders"):
-            rows = table.find_all("tr")
-            if not rows:
-                continue
-            cols = rows[0].find_all("td", class_="reg_deed_cell_borders")
-            if len(cols) >= 6:
-                link_el = cols[0].find("a")
-                href = link_el.get("href") if link_el else None
+                    data = await self.parse_rp_detail()
+                    if data:
+                        self.results.append(data)
+                        print(f"[SUCCESS] Saved RP index {i+1} → "
+                              f"{data.get('Name Selected','N/A')} | "
+                              f"Book={data.get('Book','')} Page={data.get('Page','')}")
+                        pd.DataFrame(self.results).to_excel("LienResults.xlsx", index=False)
 
-                doc = {
-                    "link": href,
-                    "county": cols[1].get_text(strip=True),
-                    "instrument": cols[2].get_text(strip=True),
-                    "filed": cols[3].get_text(strip=True),
-                    "book": cols[4].get_text(strip=True),
-                    "page": cols[5].get_text(strip=True),
-                    "properties": [],
-                    "cross_refs": []
-                }
-                
-                nested_table = rows[1].find("table")
-                if nested_table:
-                    for nrow in nested_table.find_all("tr"):
-                        props = [td.get_text(strip=True) for td in nrow.find_all("td")]
-                        if props:
-                            doc["properties"].append(props)
+                    # back
+                    await asyncio.sleep(2)
+                    back_btn = await self.page.query_selector("input[name='bBack']")
+                    if back_btn:
+                        await back_btn.click()
+                        await self.page.wait_for_load_state("domcontentloaded")
+                    else:
+                        await self.page.go_back()
+                        await self.page.wait_for_load_state("domcontentloaded")
 
-                cross_tables = rows[1].find_all("table")
-                if len(cross_tables) > 1:
-                    cross_table = cross_tables[-1]
-                    for crow in cross_table.find_all("tr")[1:]:
-                        ccols = [td.get_text(strip=True) for td in crow.find_all("td")]
-                        if any(ccols):
-                            doc["cross_refs"].append(ccols)
+                except Exception as e:
+                    print(f"[ERROR] Failed at RP index {i}: {e}")
+                    try:
+                        await self.page.go_back()
+                        await self.page.wait_for_load_state("domcontentloaded")
+                    except:
+                        pass
+                    continue
 
-                documents.append(doc)
-
-        print(f"[INFO] Scraped {len(documents)} document(s) from nameselected.asp")
-        for d in documents:
-            print("   →", d)
-
-        self.results.extend(documents)
-
-        back = await self.page.query_selector("input[name='bBack']")
-        if back:
-            await back.click()
-            await self.page.wait_for_load_state("domcontentloaded")
-            await self.human_delay()
-
-    async def search_real_estate(self, name):
-        await self.page.goto("https://search.gsccca.org/RealEstate/namesearch.asp")
-        await self.page.wait_for_selector("#txtSearchName")
-        await self.human_scroll()
-        await self.human_delay()
-
-        await self.page.fill("#txtSearchName", name)
-        await self.human_delay()
-        await self.page.click("#btnSubmit")
-        await self.page.wait_for_load_state("domcontentloaded")
-        await self.human_delay()
-
-        await self.select_highest_occurs()
-        back = await self.page.query_selector("input[name='bBack']")
-        if back:
-            await back.click()
-            await self.page.wait_for_load_state("domcontentloaded")
-            await self.human_delay()
-
-    async def select_highest_occurs(self):
-        await self.human_scroll()
-        rows = await self.page.query_selector_all("table.name_results tr[style]")
-        best_row, max_occurs = None, -1
-        for row in rows:
-            cols = await row.query_selector_all("td")
-            if len(cols) >= 3:
-                occurs = int((await cols[1].inner_text()).strip())
-                if occurs > max_occurs:
-                    max_occurs = occurs
-                    best_row = row
-
-        if best_row:
-            radio = await best_row.query_selector("input[type='radio']")
-            await radio.click()
-            await self.human_delay()
-            await self.page.click("#btnDisplayDetails")
-            await self.page.wait_for_load_state("domcontentloaded")
-            await self.human_delay()
-            await self.scrape_documents()
-        back = await self.page.query_selector("input[name='bBack']")
-        if back:
-            await back.click()
-            await self.page.wait_for_load_state("domcontentloaded")
-            await self.human_delay()
-
-    async def process_rp_detail(self):
-        await self.human_scroll()
-        html = await self.page.content()
-        soup = BeautifulSoup(html, "html.parser")
-        debtor_names = []
-        debtor_header = soup.find("td", string=lambda t: t and "Direct Party (Debtor)" in t)
-        if debtor_header:
-            tbody = debtor_header.find_parent("tbody")
-            if tbody:
-                rows = tbody.find_all("tr")
-                for row in rows[1:]:  
-                    td = row.find("td")
-                    if td and td.text.strip():
-                        debtor_names.append(td.text.strip())
-
-        print(f"[INFO] Found Debtor Names: {debtor_names}")
-        documents = []
-        rows = soup.select("table.table_borders > tr, table.table_borders > tbody > tr")
-        for row in rows:
-            cols = row.find_all("td", class_="reg_deed_cell_borders")
-            if len(cols) >= 6:
-                link_el = cols[0].find("a")
-                href = link_el.get("href") if link_el else None
-
-                doc = {
-                    "link": href,
-                    "county": cols[1].get_text(strip=True),
-                    "instrument": cols[2].get_text(strip=True),
-                    "filed_date": cols[3].get_text(strip=True),
-                    "book": cols[4].get_text(strip=True),
-                    "page": cols[5].get_text(strip=True),
-                }
-                documents.append(doc)
-
-        print(f"[INFO] Collected {len(documents)} document(s)")
-        for d in documents:
-            print("   →", d)
-        for debtor in debtor_names:
-            print(f"[INFO] Searching for debtor: {debtor}")
-            await self.search_real_estate(debtor)
-
-        return {
-            "debtors": debtor_names,
-            "documents": documents
-        }
-
-    def save_to_excel(self, filename="results.xlsx"):
-        try:
-            if not self.results:
-                print("[WARN] No results to save.")
-                return
-            if isinstance(self.results[0], dict):
-                df = pd.DataFrame(self.results)
+            # Pagination: look for "Next" explicitly
+            next_page = await self.page.query_selector("a:has-text('Next')")
+            if next_page:
+                print("[INFO] Going to next page...")
+                try:
+                    await next_page.click()
+                    await self.page.wait_for_load_state("domcontentloaded")
+                except Exception as e:
+                    print(f"[ERROR] Pagination failed: {e}")
+                    break
             else:
-                df = pd.DataFrame({"Data": self.results})
+                print("[INFO] No more pages found.")
+                break
 
-            df.to_excel(filename, index=False, engine="openpyxl")
-            print(f"[INFO] Results saved to {filename}")
+        self.save_to_excel("LienResults.xlsx")
+        
+    
 
-        except Exception as e:
-            print(f"[ERROR] Failed to save results: {e}")
+    async def parse_rp_detail(self):
+        """ Helper: Parse lienfinal.asp detail page with BeautifulSoup + Viewer URL + Single Page PDF + OCR + Address2 + Zipcode2 + Total Due """
+        await self.page.wait_for_load_state("domcontentloaded", timeout=15000)
+        await asyncio.sleep(1.5)
+        html = await self.page.content()
+        soup = BeautifulSoup(html, "html.parser")
+        data = {}
+
+        def safe_text(el):
+            return el.get_text(" ", strip=True) if el else ""
+
+        # ---------- Improved TOTAL DUE Extraction ----------
+        def extract_total_due(text: str) -> str:
+            lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+            total_due_candidates = []
+
+            for idx, ln in enumerate(lines):
+                print(f"Line {idx}: {ln}")
+                if "TOTAL DUE" in ln.upper() or "TOTAL DUE" in ln.upper().replace(" ", ""):
+                    context = " ".join(lines[max(0, idx - 1): min(len(lines), idx + 2)])
+                    amounts = re.findall(r"\$?\s*([\d,]+\.\d{2})", context)
+                    if amounts:
+                        amounts = [amt.replace(",", "") for amt in amounts]
+                        amounts = [float(amt) for amt in amounts]
+                        total_due = max(amounts)
+                        return f"{total_due:.2f}"
+                    total_due_candidates.append(context)
+
+            m2 = re.search(r"TOT[A-Z0-9\s]*DUE[:\s]*\$?\s*([\d,]+\.\d{2})", text, re.IGNORECASE)
+            if m2:
+                return m2.group(1).replace(",", "")
+
+            all_amounts = re.findall(r"\$?\s*([\d,]+\.\d{2})", text)
+            if all_amounts:
+                all_amounts = [amt.replace(",", "") for amt in all_amounts]
+                all_amounts = [float(amt) for amt in all_amounts]
+                total_due = max(all_amounts)
+                return f"{total_due:.2f}"
+
+            return "Not Found"
+
+        # ---------- Normal Data Extraction ----------
+        header_table = soup.find("table", cellpadding="2")
+        if header_table:
+            rows = header_table.find_all("tr")
+            for row in rows:
+                cells = row.find_all("td")
+                if len(cells) == 2:
+                    key = safe_text(cells[0]).rstrip(":")
+                    val = safe_text(cells[1])
+                    data[key] = val
+                elif len(cells) == 1:
+                    data["Extra Info"] = safe_text(cells[0])
+
+        doc_table = soup.find("table", width="800", cellpadding="0", cellspacing="0")
+        if doc_table:
+            rows = doc_table.find_all("tr")[1:]
+            if rows:
+                cols = [safe_text(td) for td in rows[0].find_all("td")]
+                if len(cols) >= 6:
+                    data.update({
+                        "County": cols[0],
+                        "Instrument": cols[1],
+                        "Date Filed": cols[2],
+                        "Time": cols[3],
+                        "Book": cols[4],
+                        "Page": cols[5],
+                    })
+
+        desc_table = soup.find("td", string=lambda t: t and "Description" in t)
+        if desc_table:
+            tbody = desc_table.find_parent("table")
+            desc_val = safe_text(tbody.find_all("tr")[1].find("td"))
+            data["Description"] = desc_val
+
+        debtor_table = soup.find("td", string=lambda t: t and "Direct Party (Debtor)" in t)
+        if debtor_table:
+            tbody = debtor_table.find_parent("table")
+            debtors = [safe_text(td) for td in tbody.find_all("td")[1:]]
+            data["Direct Party (Debtor)"] = "; ".join(debtors)
+
+        claimant_table = soup.find("td", string=lambda t: t and "Reverse Party (Claimant)" in t)
+        if claimant_table:
+            tbody = claimant_table.find_parent("table")
+            claimants = [safe_text(td) for td in tbody.find_all("td")[1:]]
+            data["Reverse Party (Claimant)"] = "; ".join(claimants)
+
+        cross_table = soup.find("td", string=lambda t: t and "Cross-Referenced Instruments" in t)
+        if cross_table:
+            tbody = cross_table.find_parent("table")
+            rows = tbody.find_all("tr")[1:]
+            refs = []
+            for row in rows:
+                cols = [safe_text(td) for td in row.find_all("td")]
+                if any(cols):
+                    refs.append(" | ".join(cols))
+            data["Cross-Referenced Instruments"] = "; ".join(refs)
+
+        record_info = soup.find("i")
+        if record_info:
+            data["Record Added"] = safe_text(record_info)
+
+        def extract_addresses_from_ocr(text, max_addresses=2):
+            lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+            addresses = []
+
+            for idx, ln in enumerate(lines):
+                m = re.search(r'([A-Za-z][A-Za-z0-9\.\'&\-\s]+,\s*[A-Za-z]{2}\s*\d{5})', ln)
+                if m:
+                    city_state_zip = m.group(1).strip()
+                    street = ""
+                    for j in range(1, 4):
+                        if idx - j < 0:
+                            break
+                        prev = lines[idx - j]
+                        if re.search(r'\b(County|Tax|Commissioner|Recorded|Doc:|Rept#|VS\b|Defendant|GRANT|PAYMENT|TOTAL DUE|PHONE|TEL|Fax)\b', prev, re.I):
+                            continue
+                        if re.search(r'^\d+\s', prev) or re.search(r'\b(St(reet)?|Street|Rd|Road|Ave|Avenue|Blvd|Ln|Lane|Dr|Drive|Way|Ct|Court|PKWY|Parkway)\b', prev, re.I):
+                            street = prev
+                            break
+                        if not re.search(r'^\b(Grant|GORDON|LIEN|TOTAL|PAYMENT)\b', prev, re.I):
+                            street = prev
+                            break
+
+                    full_address = (street + " " + city_state_zip).strip() if street else city_state_zip
+                    zip_m = re.search(r'(\d{5})$', city_state_zip)
+                    zipcode = zip_m.group(1) if zip_m else ""
+                    addresses.append({"address": full_address, "zipcode": zipcode})
+
+                    if len(addresses) >= max_addresses:
+                        break
+
+            while len(addresses) < max_addresses:
+                addresses.append({"address": "", "zipcode": ""})
+
+            return addresses
+        # -------------------------------------------------------------------------
+
+        viewer_script = soup.find("script", string=lambda t: t and "ViewImage" in t)
+        if viewer_script:
+            script_text = viewer_script.string
+            match = re.search(r'var iLienID\s*=\s*(\d+);', script_text)
+            if match:
+                lien_id = match.group(1)
+                county = re.search(r'var county\s*=\s*"(\d+)"', script_text).group(1)
+                book = re.search(r'var book\s*=\s*"(\d+)"', script_text).group(1)
+                page_num = re.search(r'var page\s*=\s*"(\d+)"', script_text).group(1)
+                userid = re.search(r'var user\s*=\s*(\d+)', script_text).group(1)
+                appid = re.search(r'var appid\s*=\s*(\d+)', script_text).group(1)
+
+                viewer_url = (
+                    f"https://search.gsccca.org/Imaging/HTML5Viewer.aspx?"
+                    f"id={lien_id}&key1={book}&key2={page_num}&county={county}&userid={userid}&appid={appid}"
+                )
+                data["PDF Document URL"] = viewer_url
+
+                debtor_name = data.get("Direct Party (Debtor)", "UnknownDebtor").split(";")[0][:40]
+                debtor_name = debtor_name.replace(" ", "_").replace(",", "")
+                pdf_name = f"{debtor_name}_Page{page_num}.pdf"
+
+                download_dir = "downloads"
+                os.makedirs(download_dir, exist_ok=True)
+                pdf_path = os.path.join(download_dir, pdf_name)
+
+                try:
+                    popup = await self.page.context.new_page()
+                    await popup.goto(viewer_url, timeout=30000)
+                    await popup.wait_for_load_state("domcontentloaded")
+                    await asyncio.sleep(2)
+
+                    await popup.wait_for_selector("div.vtm_imageClipper canvas", timeout=10000)
+                    canvas = await popup.query_selector("div.vtm_imageClipper canvas")
+
+                    if canvas:
+                        tmp_img = os.path.join(download_dir, f"tmp_{page_num}.png")
+                        await canvas.screenshot(path=tmp_img)
+
+                        with open(pdf_path, "wb") as f:
+                            f.write(img2pdf.convert([tmp_img]))
+
+                        data["PDF"] = pdf_name
+
+                        try:
+                            img = Image.open(tmp_img).convert("L")
+                            text = pytesseract.image_to_string(img, lang="eng")
+                            data["OCR_Text"] = text.strip()
+
+                            addr_list = extract_addresses_from_ocr(data["OCR_Text"], max_addresses=2)
+                            data["Address2"] = addr_list[1]["address"]
+                            data["Zipcode2"] = addr_list[1]["zipcode"]
+
+                            data["Total Due"] = extract_total_due(data["OCR_Text"])
+
+                        except Exception as e:
+                            data["OCR_Text"] = ""
+                            data["Address2"] = ""
+                            data["Zipcode2"] = ""
+                            data["Total Due"] = ""
+
+                        finally:
+                            os.remove(tmp_img)
+
+                    else:
+                        data["PDF"] = ""
+                        data["OCR_Text"] = ""
+                        data["Address2"] = ""
+                        data["Zipcode2"] = ""
+                        data["Total Due"] = ""
+
+                    await popup.close()
+
+                except Exception as e:
+                    data["PDF"] = ""
+                    data["OCR_Text"] = ""
+                    data["Address2"] = ""
+                    data["Zipcode2"] = ""
+                    data["Total Due"] = ""
+
+            else:
+                data["PDF Document URL"] = ""
+                data["PDF"] = ""
+                data["OCR_Text"] = ""
+                data["Address2"] = ""
+                data["Zipcode2"] = ""
+                data["Total Due"] = ""
+        else:
+            data["PDF Document URL"] = ""
+            data["PDF"] = ""
+            data["OCR_Text"] = ""
+            data["Address2"] = ""
+            data["Zipcode2"] = ""
+            data["Total Due"] = ""
+
+        return data
+
+
+
+
+    def save_to_excel(self, filename="LienResults.xlsx"):
+        """ Save scraped results to Excel. Creates timestamped filename to avoid permission issues.
+            Also adds clickable PDF hyperlinks in Excel.
+        """
+        import os
+        if not hasattr(self, "results") or not self.results:
+            print("[WARNING] No results to save")
+            return
+
+        df = pd.DataFrame(self.results)
+
+        columns = [
+            "Direct Party (Debtor)", "Reverse Party (Claimant)",
+            "Address2", "Zipcode2", "Total Due",
+            "Name Selected", "Searched", "User Selected Dates", "County Good From", "Query Made",
+            "County", "Instrument", "Date Filed", "Time", "Book", "Page",
+            "Description", "Sec/GMD", "District", "Land Lot", "Subdivision",
+            "Unit", "Block", "Lot", "Comment",
+            "Cross-Referenced Instruments", "Record Added",
+            "PDF Document URL", "PDF", "OCR_Text",
+        ]
+
+        for col in columns:
+            if col not in df.columns:
+                df[col] = ""
+
+        df = df[columns]
+
+        # timestamped filename
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        base, ext = os.path.splitext(filename)
+        final_filename = f"{base}_{ts}{ext}"
+
+        # Save normally first
+        df.to_excel(final_filename, index=False)
+
+        # 🔗 Add PDF Hyperlinks using openpyxl
+        import openpyxl, os
+        wb = openpyxl.load_workbook(final_filename)
+        ws = wb.active
+
+        # find PDF column index
+        headers = {cell.value: cell.column for cell in ws[1]}
+        pdf_col = headers.get("PDF")
+
+        if pdf_col:
+            download_dir = "downloads"
+            for row in range(2, ws.max_row + 1):
+                pdf_name = ws.cell(row=row, column=pdf_col).value
+                if pdf_name:
+                    pdf_path = os.path.abspath(os.path.join(download_dir, pdf_name))
+                    # replace cell value with hyperlink formula
+                    ws.cell(row=row, column=pdf_col).value = f'=HYPERLINK("{pdf_path}", "{pdf_name}")'
+
+        wb.save(final_filename)
+        print(f"[INFO] Saved {len(df)} records to {final_filename} (with PDF links)")
+
+
 
 
     async def scrape(self, page_url: str) -> Dict[str, Any]:
@@ -456,7 +683,7 @@ class GSCCCAScraper:
             return {}
 
     async def run(self):
-        """initialize plawright browser and run scraper"""
+        """initialize playwright browser and run scraper"""
         playwright = await pw.async_playwright().start()
         browser = await playwright.chromium.launch(
             headless=HEADLESS, 
@@ -467,7 +694,6 @@ class GSCCCAScraper:
             ]
         )
 
-        # Initialise browser session
         if STATE_FILE.exists():
             print("Loaded session from storage...")
             context = await browser.new_context(
@@ -477,11 +703,9 @@ class GSCCCAScraper:
                 timezone_id=TIMEZONE,
                 viewport=VIEWPORT,
                 device_scale_factor=1,
-                extra_http_headers = EXTRA_HEADERS,
+                extra_http_headers=EXTRA_HEADERS,
             )
-            
             self.page = await context.new_page()
-            
         else:
             print("Starting fresh session...")
             context = await browser.new_context(
@@ -490,9 +714,8 @@ class GSCCCAScraper:
                 timezone_id=TIMEZONE,
                 viewport=VIEWPORT,
                 device_scale_factor=1,
-                extra_http_headers = EXTRA_HEADERS,
+                extra_http_headers=EXTRA_HEADERS,
             )
-            
             self.page = await browser.new_page()
 
         if STATE_FILE.exists():
@@ -507,29 +730,23 @@ class GSCCCAScraper:
                     await self.page.wait_for_timeout(self.time_sleep())
                     await self.dump_cookies()
 
-        # -------- Login handling --------
+        # -------- Steps after login --------
         if not await self.step1_open_homepage():
             await self.login_(email=self.email, password=self.password)
             await self.page.wait_for_timeout(self.time_sleep())
 
-        # -------- Steps after login --------
-        
         await self.step2_click_name_search()
         await self.check_and_handle_announcement()
         await self.step3_fill_form()
         await self.check_and_handle_announcement()
         await self.step4_select_highest_occurs()
         await self.check_and_handle_announcement()
-        await self.process_all_rp()
-        await self.process_rp_detail()
-        await self.search_real_estate(name="Gordon")
-        await self.select_highest_occurs()
-        await self.scrape_documents()
-        self.save_to_excel()
+        await self.process_rp_details()  
         await self.check_and_handle_announcement()
-
+        self.save_to_excel()
         await browser.close()
         await playwright.stop()
+
 
 
 async def main() -> None:

@@ -6,7 +6,7 @@ __pycache__/
 *.xls
 *.json
 .json
-
+downloads/
 # C extensions
 *.so
 
