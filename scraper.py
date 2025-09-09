@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import os
 import re
 import json
@@ -16,10 +14,8 @@ import ssl
 import certifi
 import pytesseract
 import cv2
+import numpy as np
 from datetime import datetime
-import os
-
-from rapidfuzz import fuzz, process
 from pathlib import Path
 from PIL import Image
 from bs4 import BeautifulSoup
@@ -32,9 +28,8 @@ from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 load_dotenv()
 console = Console()
 
-if os.name == "nt":  # Windows
+if os.name == "nt": 
     pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
-
 
 # ---------- config -------------------------------------------------------------
 HEADLESS = False 
@@ -67,11 +62,8 @@ class GSCCCAScraper:
         self.login_url = "https://apps.gsccca.org/login.asp"
         self.name_search_url = "https://search.gsccca.org/Lien/namesearch.asp"
         self.results = []
-
-        # SSL Context for aiohttp
         self.ssl_context = ssl.create_default_context(cafile=certifi.where())
         
-
 
     def time_sleep(self, a: int = 2500, b: int = 5000) -> int:
         return random.uniform(a, b)
@@ -145,9 +137,6 @@ class GSCCCAScraper:
             print("[LOGIN] Login failed")
             return False
 
-        
-        
-        
     async def step1_open_homepage(self):
         """Go to homepage & check if logged in."""
         print("[STEP 1] Opening homepage...")
@@ -218,7 +207,7 @@ class GSCCCAScraper:
 
             await self.page.select_option("select[name='TableType']", "1")
             await self.page.wait_for_timeout(self.time_sleep())
- 
+    
             await self.page.click("form[name='SearchType'] input[value='Search']")
             print("[STEP 3] Form filled successfully")
 
@@ -279,7 +268,6 @@ class GSCCCAScraper:
         visited_pages = set()
 
         while True:
-            # Unique marker: first RP link href
             rp_links = await self.page.query_selector_all("a[href*='lienfinal']")
             if not rp_links:
                 print("[WARNING] No RP buttons found on this page")
@@ -294,7 +282,7 @@ class GSCCCAScraper:
             total = len(rp_links)
             print(f"[INFO] Found {total} RP buttons on this page")
 
-            for i in range(min(5, total)):  # sirf 5 records for demo
+            for i in range(min(5, total)): 
                 try:
                     rp_links = await self.page.query_selector_all("a[href*='lienfinal']")
                     if i >= len(rp_links):
@@ -302,7 +290,6 @@ class GSCCCAScraper:
 
                     link = rp_links[i]
 
-                    # Click with retry
                     retries = 3
                     for attempt in range(retries):
                         try:
@@ -323,7 +310,6 @@ class GSCCCAScraper:
                               f"Book={data.get('Book','')} Page={data.get('Page','')}")
                         pd.DataFrame(self.results).to_excel("LienResults.xlsx", index=False)
 
-                    # back
                     await asyncio.sleep(2)
                     back_btn = await self.page.query_selector("input[name='bBack']")
                     if back_btn:
@@ -342,7 +328,6 @@ class GSCCCAScraper:
                         pass
                     continue
 
-            # Pagination: look for "Next" explicitly
             next_page = await self.page.query_selector("a:has-text('Next')")
             if next_page:
                 print("[INFO] Going to next page...")
@@ -358,8 +343,6 @@ class GSCCCAScraper:
 
         self.save_to_excel("LienResults.xlsx")
         
-    
-
     async def parse_rp_detail(self):
         """ Helper: Parse lienfinal.asp detail page with BeautifulSoup + Viewer URL + Single Page PDF + OCR + Address2 + Zipcode2 + Total Due """
         await self.page.wait_for_load_state("domcontentloaded", timeout=15000)
@@ -371,37 +354,108 @@ class GSCCCAScraper:
         def safe_text(el):
             return el.get_text(" ", strip=True) if el else ""
 
-        # ---------- Improved TOTAL DUE Extraction ----------
         def extract_total_due(text: str) -> str:
-            lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
-            total_due_candidates = []
-
-            for idx, ln in enumerate(lines):
-                print(f"Line {idx}: {ln}")
-                if "TOTAL DUE" in ln.upper() or "TOTAL DUE" in ln.upper().replace(" ", ""):
-                    context = " ".join(lines[max(0, idx - 1): min(len(lines), idx + 2)])
-                    amounts = re.findall(r"\$?\s*([\d,]+\.\d{2})", context)
-                    if amounts:
-                        amounts = [amt.replace(",", "") for amt in amounts]
-                        amounts = [float(amt) for amt in amounts]
-                        total_due = max(amounts)
-                        return f"{total_due:.2f}"
-                    total_due_candidates.append(context)
-
-            m2 = re.search(r"TOT[A-Z0-9\s]*DUE[:\s]*\$?\s*([\d,]+\.\d{2})", text, re.IGNORECASE)
+            text = text.replace('\n', ' ').replace('\r', ' ')
+            pattern1 = re.compile(r"TOTAL\s*DUE(?:\s*[:\s-]*\s*)([\d,]+\.\d{2})", re.IGNORECASE)
+            pattern2 = re.compile(r"TOT(?:AL)?\s*DUE\s*\$?\s*([\d,]+\.\d{2})", re.IGNORECASE)
+            m1 = pattern1.search(text)
+            if m1:
+                amount = m1.group(1).replace(",", "")
+                try:
+                    return f"{float(amount):.2f}"
+                except ValueError:
+                    pass
+            m2 = pattern2.search(text)
             if m2:
-                return m2.group(1).replace(",", "")
-
+                amount = m2.group(1).replace(",", "")
+                try:
+                    return f"{float(amount):.2f}"
+                except ValueError:
+                    pass
             all_amounts = re.findall(r"\$?\s*([\d,]+\.\d{2})", text)
             if all_amounts:
-                all_amounts = [amt.replace(",", "") for amt in all_amounts]
-                all_amounts = [float(amt) for amt in all_amounts]
-                total_due = max(all_amounts)
-                return f"{total_due:.2f}"
-
+                all_amounts = [float(amt.replace(",", "")) for amt in all_amounts]
+                return f"{max(all_amounts):.2f}"
             return "Not Found"
 
-        # ---------- Normal Data Extraction ----------
+        def extract_addresses_from_ocr(text, max_addresses=2):
+            lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+            addresses = []
+            for idx, ln in enumerate(lines):
+                m = re.search(r'([A-Za-z][A-Za-z0-9\.\'&\-\s]+,\s*[A-Za-z]{2}\s*\d{5})', ln)
+                if m:
+                    city_state_zip = m.group(1).strip()
+                    street = ""
+                    for j in range(1, 6):
+                        if idx - j < 0:
+                            break
+                        prev = lines[idx - j]
+                        if re.search(r'\b(County|Tax|Commissioner|Recorded|Doc:|Rept#|VS\b|Defendant|GRANT|PAYMENT|TOTAL DUE|PHONE|TEL|Fax)\b', prev, re.I):
+                            continue
+                        if re.search(r'^\d+\s', prev) or re.search(r'\b(St(reet)?|Street|Rd|Road|Ave|Avenue|Blvd|Ln|Lane|Dr|Drive|Way|Ct|Court|PKWY|Parkway)\b', prev, re.I):
+                            street = prev
+                            break
+                        if not re.search(r'^\b(Grant|GORDON|LIEN|TOTAL|PAYMENT)\b', prev, re.I):
+                            street = prev
+                            break
+                    full_address = (street + " " + city_state_zip).strip() if street else city_state_zip
+                    zip_m = re.search(r'(\d{5})$', city_state_zip)
+                    zipcode = zip_m.group(1) if zip_m else ""
+                    addresses.append({"address": full_address, "zipcode": zipcode})
+                    if len(addresses) >= max_addresses:
+                        break
+            while len(addresses) < max_addresses:
+                addresses.append({"address": "", "zipcode": ""})
+            return addresses
+        
+        def get_robust_ocr_text(image_path: str) -> str:
+            """Applies multiple advanced image processing techniques to get the best OCR text."""
+            
+            img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+            
+            processed_images = {
+                "Original": img,
+                "Denoised": cv2.fastNlMeansDenoising(img, None, 30, 7, 21),
+                "Sharpened": cv2.filter2D(img, -1, kernel=np.array([[-1, -1, -1], [-1, 9, -1], [-1, -1, -1]])),
+            }
+        
+            methods = ["Original", "Adaptive Threshold", "Otsu Threshold"]
+            
+            # First, try the original image
+            try:
+                text = pytesseract.image_to_string(Image.fromarray(img), lang="eng")
+                print(f"OCR Text (Original): \n{text.strip()}")
+                if "TOTAL DUE" in text.upper():
+                    print("Total Due found in Original image method.")
+                    return text.strip()
+            except Exception as e:
+                print(f"Error with Original method: {e}")
+
+            # If not found, fall back to other methods
+            print("Total Due not found. Trying advanced image processing methods...")
+            for name, processed_img in processed_images.items():
+                if name == "Original":
+                    continue  # Already tried
+                for method in methods:
+                    try:
+                        final_img = processed_img
+                        if method == "Adaptive Threshold":
+                            final_img = cv2.adaptiveThreshold(processed_img, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2)
+                        elif method == "Otsu Threshold":
+                            ret, final_img = cv2.threshold(processed_img, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+                        
+                        text = pytesseract.image_to_string(Image.fromarray(final_img), lang="eng")
+                        print(f"OCR Text ({name} + {method}): \n{text.strip()}")
+                        
+                        if "TOTAL DUE" in text.upper():
+                            print(f"Total Due found using {name} + {method} method.")
+                            return text.strip()
+                    except Exception as e:
+                        print(f"Error with {name} + {method} method: {e}")
+            
+            return ""
+
+        # ---------- Normal Data Extraction from HTML ----------
         header_table = soup.find("table", cellpadding="2")
         if header_table:
             rows = header_table.find_all("tr")
@@ -462,47 +516,15 @@ class GSCCCAScraper:
         if record_info:
             data["Record Added"] = safe_text(record_info)
 
-        def extract_addresses_from_ocr(text, max_addresses=2):
-            lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
-            addresses = []
-
-            for idx, ln in enumerate(lines):
-                m = re.search(r'([A-Za-z][A-Za-z0-9\.\'&\-\s]+,\s*[A-Za-z]{2}\s*\d{5})', ln)
-                if m:
-                    city_state_zip = m.group(1).strip()
-                    street = ""
-                    for j in range(1, 4):
-                        if idx - j < 0:
-                            break
-                        prev = lines[idx - j]
-                        if re.search(r'\b(County|Tax|Commissioner|Recorded|Doc:|Rept#|VS\b|Defendant|GRANT|PAYMENT|TOTAL DUE|PHONE|TEL|Fax)\b', prev, re.I):
-                            continue
-                        if re.search(r'^\d+\s', prev) or re.search(r'\b(St(reet)?|Street|Rd|Road|Ave|Avenue|Blvd|Ln|Lane|Dr|Drive|Way|Ct|Court|PKWY|Parkway)\b', prev, re.I):
-                            street = prev
-                            break
-                        if not re.search(r'^\b(Grant|GORDON|LIEN|TOTAL|PAYMENT)\b', prev, re.I):
-                            street = prev
-                            break
-
-                    full_address = (street + " " + city_state_zip).strip() if street else city_state_zip
-                    zip_m = re.search(r'(\d{5})$', city_state_zip)
-                    zipcode = zip_m.group(1) if zip_m else ""
-                    addresses.append({"address": full_address, "zipcode": zipcode})
-
-                    if len(addresses) >= max_addresses:
-                        break
-
-            while len(addresses) < max_addresses:
-                addresses.append({"address": "", "zipcode": ""})
-
-            return addresses
-        # -------------------------------------------------------------------------
-
+        # ---------- Updated PDF & OCR Logic ----------
         viewer_script = soup.find("script", string=lambda t: t and "ViewImage" in t)
         if viewer_script:
-            script_text = viewer_script.string
-            match = re.search(r'var iLienID\s*=\s*(\d+);', script_text)
-            if match:
+            try:
+                script_text = viewer_script.string
+                match = re.search(r'var iLienID\s*=\s*(\d+);', script_text)
+                if not match:
+                    raise ValueError("Lien ID not found in script.")
+                
                 lien_id = match.group(1)
                 county = re.search(r'var county\s*=\s*"(\d+)"', script_text).group(1)
                 book = re.search(r'var book\s*=\s*"(\d+)"', script_text).group(1)
@@ -510,105 +532,72 @@ class GSCCCAScraper:
                 userid = re.search(r'var user\s*=\s*(\d+)', script_text).group(1)
                 appid = re.search(r'var appid\s*=\s*(\d+)', script_text).group(1)
 
-                viewer_url = (
-                    f"https://search.gsccca.org/Imaging/HTML5Viewer.aspx?"
-                    f"id={lien_id}&key1={book}&key2={page_num}&county={county}&userid={userid}&appid={appid}"
-                )
+                viewer_url = (f"https://search.gsccca.org/Imaging/HTML5Viewer.aspx?id={lien_id}&key1={book}&key2={page_num}&county={county}&userid={userid}&appid={appid}")
                 data["PDF Document URL"] = viewer_url
 
-                debtor_name = data.get("Direct Party (Debtor)", "UnknownDebtor").split(";")[0][:40]
-                debtor_name = debtor_name.replace(" ", "_").replace(",", "")
+                debtor_name = data.get("Direct Party (Debtor)", "UnknownDebtor").split(";")[0][:40].replace(" ", "_").replace(",", "")
                 pdf_name = f"{debtor_name}_Page{page_num}.pdf"
-
                 download_dir = "downloads"
                 os.makedirs(download_dir, exist_ok=True)
                 pdf_path = os.path.join(download_dir, pdf_name)
+                tmp_img = os.path.join(download_dir, f"tmp_{page_num}.png")
 
+                popup = await self.page.context.new_page()
+                await popup.goto(viewer_url, timeout=30000)
+                await popup.wait_for_load_state("domcontentloaded")
+                await asyncio.sleep(2)
+                await popup.wait_for_selector("div.vtm_imageClipper canvas", timeout=10000)
+                canvas = await popup.query_selector("div.vtm_imageClipper canvas")
+
+                if canvas:
+                    await canvas.screenshot(path=tmp_img)
+                    data["PDF"] = pdf_name
+                
+                await popup.close()
+                
                 try:
-                    popup = await self.page.context.new_page()
-                    await popup.goto(viewer_url, timeout=30000)
-                    await popup.wait_for_load_state("domcontentloaded")
-                    await asyncio.sleep(2)
-
-                    await popup.wait_for_selector("div.vtm_imageClipper canvas", timeout=10000)
-                    canvas = await popup.query_selector("div.vtm_imageClipper canvas")
-
-                    if canvas:
-                        tmp_img = os.path.join(download_dir, f"tmp_{page_num}.png")
-                        await canvas.screenshot(path=tmp_img)
-
-                        with open(pdf_path, "wb") as f:
-                            f.write(img2pdf.convert([tmp_img]))
-
-                        data["PDF"] = pdf_name
-
-                        try:
-                            img = Image.open(tmp_img).convert("L")
-                            text = pytesseract.image_to_string(img, lang="eng")
-                            data["OCR_Text"] = text.strip()
-
-                            addr_list = extract_addresses_from_ocr(data["OCR_Text"], max_addresses=2)
-                            data["Address2"] = addr_list[1]["address"]
-                            data["Zipcode2"] = addr_list[1]["zipcode"]
-
-                            data["Total Due"] = extract_total_due(data["OCR_Text"])
-
-                        except Exception as e:
-                            data["OCR_Text"] = ""
-                            data["Address2"] = ""
-                            data["Zipcode2"] = ""
-                            data["Total Due"] = ""
-
-                        finally:
-                            os.remove(tmp_img)
-
+                    text = get_robust_ocr_text(tmp_img)
+                    data["OCR_Text"] = text
+                    
+                    if text:
+                        addr_list = extract_addresses_from_ocr(data["OCR_Text"], max_addresses=2)
+                        data["Address2"] = addr_list[1]["address"]
+                        data["Zipcode2"] = addr_list[1]["zipcode"]
+                        data["Total Due"] = extract_total_due(data["OCR_Text"])
                     else:
-                        data["PDF"] = ""
                         data["OCR_Text"] = ""
                         data["Address2"] = ""
                         data["Zipcode2"] = ""
                         data["Total Due"] = ""
-
-                    await popup.close()
-
                 except Exception as e:
-                    data["PDF"] = ""
+                    print(f"[ERROR] Failed to process OCR and extract data: {e}")
                     data["OCR_Text"] = ""
                     data["Address2"] = ""
                     data["Zipcode2"] = ""
                     data["Total Due"] = ""
+                
+                if os.path.exists(tmp_img):
+                    os.remove(tmp_img)
 
-            else:
-                data["PDF Document URL"] = ""
-                data["PDF"] = ""
-                data["OCR_Text"] = ""
-                data["Address2"] = ""
-                data["Zipcode2"] = ""
-                data["Total Due"] = ""
-        else:
-            data["PDF Document URL"] = ""
-            data["PDF"] = ""
-            data["OCR_Text"] = ""
-            data["Address2"] = ""
-            data["Zipcode2"] = ""
-            data["Total Due"] = ""
+            except Exception as e:
+                print(f"[ERROR] An issue occurred during PDF/OCR processing: {e}")
+                data.update({
+                    "PDF Document URL": "",
+                    "PDF": "",
+                    "OCR_Text": "",
+                    "Address2": "",
+                    "Zipcode2": "",
+                    "Total Due": ""
+                })
 
         return data
-
-
-
-
+        
     def save_to_excel(self, filename="LienResults.xlsx"):
-        """ Save scraped results to Excel. Creates timestamped filename to avoid permission issues.
-            Also adds clickable PDF hyperlinks in Excel.
-        """
-        import os
         if not hasattr(self, "results") or not self.results:
             print("[WARNING] No results to save")
             return
 
         df = pd.DataFrame(self.results)
-
         columns = [
             "Direct Party (Debtor)", "Reverse Party (Claimant)",
             "Address2", "Zipcode2", "Total Due",
@@ -619,65 +608,47 @@ class GSCCCAScraper:
             "Cross-Referenced Instruments", "Record Added",
             "PDF Document URL", "PDF", "OCR_Text",
         ]
-
         for col in columns:
             if col not in df.columns:
                 df[col] = ""
-
         df = df[columns]
 
-        # timestamped filename
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         base, ext = os.path.splitext(filename)
         final_filename = f"{base}_{ts}{ext}"
-
-        # Save normally first
         df.to_excel(final_filename, index=False)
-
-        # 🔗 Add PDF Hyperlinks using openpyxl
-        import openpyxl, os
+        
+        import openpyxl
         wb = openpyxl.load_workbook(final_filename)
         ws = wb.active
-
-        # find PDF column index
         headers = {cell.value: cell.column for cell in ws[1]}
         pdf_col = headers.get("PDF")
-
         if pdf_col:
             download_dir = "downloads"
             for row in range(2, ws.max_row + 1):
                 pdf_name = ws.cell(row=row, column=pdf_col).value
                 if pdf_name:
                     pdf_path = os.path.abspath(os.path.join(download_dir, pdf_name))
-                    # replace cell value with hyperlink formula
                     ws.cell(row=row, column=pdf_col).value = f'=HYPERLINK("{pdf_path}", "{pdf_name}")'
-
         wb.save(final_filename)
         print(f"[INFO] Saved {len(df)} records to {final_filename} (with PDF links)")
-
-
-
 
     async def scrape(self, page_url: str) -> Dict[str, Any]:
         """Open *url* in the current page and return latest post data."""
         try:
             await self.page.goto(page_url, wait_until="domcontentloaded", timeout=60_000)
             await self.page.wait_for_timeout(3000)
-
             title = await self.page.title()
-
             rows = await self.page.query_selector_all("table tr")
             data = []
             for row in rows:
                 text = await row.inner_text()
                 data.append(text.strip())
-
             return {
                 "page_title": title,
                 "row_count": len(rows),
                 "rows": data[:10]
             }
-
         except Exception as e:
             console.print(f"[red]Scrape error: {e}[/red]")
             return {}
@@ -693,7 +664,6 @@ class GSCCCAScraper:
                 "--start-maximized",
             ]
         )
-
         if STATE_FILE.exists():
             print("Loaded session from storage...")
             context = await browser.new_context(
@@ -717,7 +687,6 @@ class GSCCCAScraper:
                 extra_http_headers=EXTRA_HEADERS,
             )
             self.page = await browser.new_page()
-
         if STATE_FILE.exists():
             print("Loaded session from cookies.json...")
             await context.add_cookies(json.loads(Path(STATE_FILE).read_text())["cookies"])
@@ -729,12 +698,9 @@ class GSCCCAScraper:
                 if await self.login_(email=self.email, password=self.password):
                     await self.page.wait_for_timeout(self.time_sleep())
                     await self.dump_cookies()
-
-        # -------- Steps after login --------
         if not await self.step1_open_homepage():
             await self.login_(email=self.email, password=self.password)
             await self.page.wait_for_timeout(self.time_sleep())
-
         await self.step2_click_name_search()
         await self.check_and_handle_announcement()
         await self.step3_fill_form()
@@ -747,12 +713,9 @@ class GSCCCAScraper:
         await browser.close()
         await playwright.stop()
 
-
-
 async def main() -> None:
     scraper = GSCCCAScraper()
     await scraper.run()
-
 
 if __name__ == "__main__":
     try:
@@ -761,5 +724,3 @@ if __name__ == "__main__":
         console.print("\n[bold yellow]Interrupted![/bold yellow]\n", traceback.format_exc())
     finally:
         console.print("[bold green]Exiting...[/bold green]")
-
-
