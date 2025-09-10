@@ -14,6 +14,7 @@ import ssl
 import certifi
 import pytesseract
 import cv2
+from fuzzywuzzy import fuzz
 import numpy as np
 from datetime import datetime
 from pathlib import Path
@@ -24,6 +25,14 @@ from rich.console import Console
 import playwright.async_api as pw
 from typing import Tuple, Optional, Any, Dict
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
+from fuzzywuzzy import fuzz
+
+# --- Constants for better readability ---
+MAX_RP_TO_PROCESS = 5
+TYPING_DELAY_MIN = 100
+TYPING_DELAY_MAX = 250
+OCR_KEYWORD = "TOTAL DUE"
+FUZZY_MATCH_THRESHOLD = 80 # A higher number means a stricter match
 
 load_dotenv()
 console = Console()
@@ -190,16 +199,16 @@ class GSCCCAScraper:
             search_box = await self.page.query_selector("#txtSearchName")
             await search_box.click()
             for ch in "gordon":
-                await self.page.keyboard.type(ch, delay=random.randint(100, 250)) 
+                await self.page.keyboard.type(ch, delay=random.randint(TYPING_DELAY_MIN, TYPING_DELAY_MAX)) 
             await self.page.wait_for_timeout(self.time_sleep())
 
             await self.page.fill("input[name='txtFromDate']", "")
             for ch in "01/01/2025":
-                await self.page.keyboard.type(ch, delay=random.randint(100, 220))
+                await self.page.keyboard.type(ch, delay=random.randint(TYPING_DELAY_MIN, TYPING_DELAY_MAX))
 
             await self.page.fill("input[name='txtToDate']", "")
             for ch in "09/23/2025":
-                await self.page.keyboard.type(ch, delay=random.randint(100, 220))
+                await self.page.keyboard.type(ch, delay=random.randint(TYPING_DELAY_MIN, TYPING_DELAY_MAX))
             await self.page.wait_for_timeout(self.time_sleep())
 
             await self.page.select_option("select[name='MaxRows']", "100")
@@ -207,7 +216,7 @@ class GSCCCAScraper:
 
             await self.page.select_option("select[name='TableType']", "1")
             await self.page.wait_for_timeout(self.time_sleep())
-    
+        
             await self.page.click("form[name='SearchType'] input[value='Search']")
             print("[STEP 3] Form filled successfully")
 
@@ -282,13 +291,13 @@ class GSCCCAScraper:
             total = len(rp_links)
             print(f"[INFO] Found {total} RP buttons on this page")
 
-            for i in range(min(5, total)): 
+            for i in range(min(MAX_RP_TO_PROCESS, total)): 
                 try:
-                    rp_links = await self.page.query_selector_all("a[href*='lienfinal']")
-                    if i >= len(rp_links):
+                    current_links = await self.page.query_selector_all("a[href*='lienfinal']")
+                    if i >= len(current_links):
                         continue
 
-                    link = rp_links[i]
+                    link = current_links[i]
 
                     retries = 3
                     for attempt in range(retries):
@@ -306,8 +315,8 @@ class GSCCCAScraper:
                     if data:
                         self.results.append(data)
                         print(f"[SUCCESS] Saved RP index {i+1} → "
-                              f"{data.get('Name Selected','N/A')} | "
-                              f"Book={data.get('Book','')} Page={data.get('Page','')}")
+                                f"{data.get('Name Selected','N/A')} | "
+                                f"Book={data.get('Book','')} Page={data.get('Page','')}")
                         pd.DataFrame(self.results).to_excel("LienResults.xlsx", index=False)
 
                     await asyncio.sleep(2)
@@ -356,26 +365,77 @@ class GSCCCAScraper:
 
         def extract_total_due(text: str) -> str:
             text = text.replace('\n', ' ').replace('\r', ' ')
-            pattern1 = re.compile(r"TOTAL\s*DUE(?:\s*[:\s-]*\s*)([\d,]+\.\d{2})", re.IGNORECASE)
-            pattern2 = re.compile(r"TOT(?:AL)?\s*DUE\s*\$?\s*([\d,]+\.\d{2})", re.IGNORECASE)
-            m1 = pattern1.search(text)
+
+            def find_fuzzy_match_and_extract_amount(search_text, keyword):
+                lines = [line.strip() for line in search_text.splitlines() if line.strip()]
+                for i, line in enumerate(lines):
+                    if fuzz.ratio(line.upper(), keyword.upper()) >= FUZZY_MATCH_THRESHOLD:
+                        print(f"Fuzzy match found: '{line}' for '{keyword}'")
+                        amounts = re.findall(r"[\d,]+\.\d{2}", line)
+                        if amounts:
+                            return amounts[-1]
+                        
+                        # Look in the next line if no amount found in the current line
+                        if i + 1 < len(lines):
+                            next_line = lines[i+1]
+                            amounts_in_next_line = re.findall(r"[\d,]+\.\d{2}", next_line)
+                            if amounts_in_next_line:
+                                return amounts_in_next_line[-1]
+                return None
+            
+            # Strategy 1: Direct keyword search
+            m1 = re.search(r"TOTAL\s*DUE(?:\s*[:\s-]*\s*)([\d,]+\.\d{2})", text, re.IGNORECASE)
+            m2 = re.search(r"TOT(?:AL)?\s*DUE\s*\$?\s*([\d,]+\.\d{2})", text, re.IGNORECASE)
+            
             if m1:
-                amount = m1.group(1).replace(",", "")
-                try:
-                    return f"{float(amount):.2f}"
-                except ValueError:
-                    pass
-            m2 = pattern2.search(text)
+                return f"{float(m1.group(1).replace(',', '')):.2f}"
             if m2:
-                amount = m2.group(1).replace(",", "")
+                return f"{float(m2.group(1).replace(',', '')):.2f}"
+
+            # Strategy 2: Calculate from individual tax items
+            print("TOTAL DUE keyword not found. Attempting to calculate from tax items.")
+            amounts = {}
+            patterns = {
+                "TAX": r"TAX\s*\$?\s*([\d,]+\.\d{2})",
+                "PENALTY": r"PENALTY\s*\$?\s*([\d,]+\.\d{2})",
+                "FIFA": r"FIFA\s*\$?\s*([\d,]+\.\d{2})",
+                "GED": r"GED\s*\$?\s*([\d,]+\.\d{2})",
+                "INTEREST": r"INTEREST\s*\$?\s*([\d,]+\.\d{2})",
+                "DEMO LIEN": r"DEMO\s+LIEN\s*\$?\s*([\d,]+\.\d{2})",
+                "PAYMENT": r"PAYMENT\(S\)\s*\$?\s*([\d,]+\.\d{2})"
+            }
+
+            total = 0.0
+            found_items = False
+            for key, pattern in patterns.items():
+                match = re.search(pattern, text, re.IGNORECASE)
+                if match:
+                    found_items = True
+                    try:
+                        amount = float(match.group(1).replace(",", ""))
+                        amounts[key] = amount
+                        print(f"Found {key}: {amount:.2f}")
+                        if key != "PAYMENT":
+                            total += amount
+                        else:
+                            total -= amount
+                    except ValueError:
+                        print(f"Failed to parse amount for {key}")
+
+            if found_items:
+                print(f"Calculated Total Due: {total:.2f}")
+                return f"{total:.2f}"
+            
+            # Strategy 3: Fuzzy keyword matching
+            print("Calculation from tax items failed. Trying fuzzy matching.")
+            fuzzy_amount_str = find_fuzzy_match_and_extract_amount(text, OCR_KEYWORD)
+            if fuzzy_amount_str:
                 try:
-                    return f"{float(amount):.2f}"
+                    return f"{float(fuzzy_amount_str.replace(',', '')):.2f}"
                 except ValueError:
                     pass
-            all_amounts = re.findall(r"\$?\s*([\d,]+\.\d{2})", text)
-            if all_amounts:
-                all_amounts = [float(amt.replace(",", "")) for amt in all_amounts]
-                return f"{max(all_amounts):.2f}"
+
+            print("WARNING: Could not find TOTAL DUE or calculate from tax items.")
             return "Not Found"
 
         def extract_addresses_from_ocr(text, max_addresses=2):
@@ -408,51 +468,81 @@ class GSCCCAScraper:
                 addresses.append({"address": "", "zipcode": ""})
             return addresses
         
-        def get_robust_ocr_text(image_path: str) -> str:
-            """Applies multiple advanced image processing techniques to get the best OCR text."""
+        def deskew_image(image):
+            coords = np.column_stack(np.where(image > 0))
+            if coords.size == 0: 
+                return image
             
+            angle = cv2.minAreaRect(coords)[-1]
+            if angle < -45:
+                angle = -(90 + angle)
+            else:
+                angle = -angle
+            
+            (h, w) = image.shape[:2]
+            center = (w // 2, h // 2)
+            M = cv2.getRotationMatrix2D(center, angle, 1.0)
+            rotated = cv2.warpAffine(image, M, (w, h), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
+            return rotated
+
+        def get_robust_ocr_text(image_path: str) -> str:
+            """
+            Applies a prioritized, intelligent fallback strategy with various image
+            processing techniques to get the best OCR text, focusing on efficiency.
+            """
             img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
             
-            processed_images = {
-                "Original": img,
-                "Denoised": cv2.fastNlMeansDenoising(img, None, 30, 7, 21),
-                "Sharpened": cv2.filter2D(img, -1, kernel=np.array([[-1, -1, -1], [-1, 9, -1], [-1, -1, -1]])),
-            }
-        
-            methods = ["Original", "Adaptive Threshold", "Otsu Threshold"]
-            
-            # First, try the original image
-            try:
-                text = pytesseract.image_to_string(Image.fromarray(img), lang="eng")
-                print(f"OCR Text (Original): \n{text.strip()}")
-                if "TOTAL DUE" in text.upper():
-                    print("Total Due found in Original image method.")
-                    return text.strip()
-            except Exception as e:
-                print(f"Error with Original method: {e}")
+            deskewed_img = deskew_image(img)
 
-            # If not found, fall back to other methods
-            print("Total Due not found. Trying advanced image processing methods...")
-            for name, processed_img in processed_images.items():
-                if name == "Original":
-                    continue  # Already tried
-                for method in methods:
-                    try:
-                        final_img = processed_img
-                        if method == "Adaptive Threshold":
-                            final_img = cv2.adaptiveThreshold(processed_img, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2)
-                        elif method == "Otsu Threshold":
-                            ret, final_img = cv2.threshold(processed_img, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-                        
-                        text = pytesseract.image_to_string(Image.fromarray(final_img), lang="eng")
-                        print(f"OCR Text ({name} + {method}): \n{text.strip()}")
-                        
-                        if "TOTAL DUE" in text.upper():
-                            print(f"Total Due found using {name} + {method} method.")
-                            return text.strip()
-                    except Exception as e:
-                        print(f"Error with {name} + {method} method: {e}")
-            
+            processing_methods = {
+                "Original": lambda x: x,
+                "Inverted": lambda x: cv2.bitwise_not(x),
+                "Adaptive Threshold": lambda x: cv2.adaptiveThreshold(x, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2),
+                "Otsu Threshold": lambda x: cv2.threshold(x, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1],
+                "CLAHE": lambda x: cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8)).apply(x),
+                "Denoised": lambda x: cv2.fastNlMeansDenoising(x, None, 30, 7, 21),
+                "Sharpened": lambda x: cv2.filter2D(x, -1, kernel=np.array([[-1, -1, -1], [-1, 9, -1], [-1, -1, -1]])),
+                "Contrast Enhanced": lambda x: cv2.convertScaleAbs(x, alpha=1.5, beta=0),
+                "Median Blurred": lambda x: cv2.medianBlur(x, 3),
+                "Unsharp Masked": lambda x: cv2.addWeighted(x, 1.5, cv2.GaussianBlur(x, (0, 0), 3), -0.5, 0),
+            }
+
+            prioritized_methods = [
+                "Original",
+                "Inverted",
+                "Adaptive Threshold",
+                "Otsu Threshold"
+            ]
+
+            print("Trying prioritized OCR methods on deskewed image...")
+            for method_name in prioritized_methods:
+                try:
+                    processed_img = processing_methods[method_name](deskewed_img)
+                    text = pytesseract.image_to_string(Image.fromarray(processed_img), lang="eng")
+                    print(f"OCR Text ({method_name} on Deskewed):\n{text.strip()}")
+                    if "TOTAL DUE" in text.upper():
+                        print(f"SUCCESS: '{OCR_KEYWORD}' found with '{method_name}' method on deskewed image.")
+                        return text.strip()
+                except Exception as e:
+                    print(f"Error with {method_name}: {e}")
+                    continue
+
+            print(f"'{OCR_KEYWORD}' not found. Falling back to other methods...")
+            for method_name, method_func in processing_methods.items():
+                if method_name in prioritized_methods:
+                    continue
+                try:
+                    processed_img = method_func(deskewed_img)
+                    text = pytesseract.image_to_string(Image.fromarray(processed_img), lang="eng")
+                    print(f"OCR Text (Fallback: {method_name} on Deskewed):\n{text.strip()}")
+                    if "TOTAL DUE" in text.upper():
+                        print(f"SUCCESS: '{OCR_KEYWORD}' found with fallback '{method_name}' method.")
+                        return text.strip()
+                except Exception as e:
+                    print(f"Error with fallback {method_name}: {e}")
+                    continue
+
+            print(f"WARNING: '{OCR_KEYWORD}' not found in any method. Returning empty string.")
             return ""
 
         # ---------- Normal Data Extraction from HTML ----------
