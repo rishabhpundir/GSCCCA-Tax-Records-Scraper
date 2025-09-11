@@ -9,6 +9,7 @@ __pycache__/
 downloads/
 # C extensions
 *.so
+*.png
 
 # Distribution / packaging
 .Python
