@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 import os
+import io
 import re
 import json
 import math
@@ -8,15 +11,17 @@ import traceback
 import pandas as pd
 import requests
 import openpyxl
+from openpyxl.styles import Font
 import img2pdf
 import aiohttp
 import ssl
 import certifi
 import pytesseract
 import cv2
-from fuzzywuzzy import fuzz
 import numpy as np
 from datetime import datetime
+
+
 from pathlib import Path
 from PIL import Image
 from bs4 import BeautifulSoup
@@ -25,20 +30,13 @@ from rich.console import Console
 import playwright.async_api as pw
 from typing import Tuple, Optional, Any, Dict
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
-from fuzzywuzzy import fuzz
-
-# --- Constants for better readability ---
-MAX_RP_TO_PROCESS = 5
-TYPING_DELAY_MIN = 100
-TYPING_DELAY_MAX = 250
-OCR_KEYWORD = "TOTAL DUE"
-FUZZY_MATCH_THRESHOLD = 80 # A higher number means a stricter match
 
 load_dotenv()
 console = Console()
 
-if os.name == "nt": 
+if os.name == "nt":  # Windows
     pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+
 
 # ---------- config -------------------------------------------------------------
 HEADLESS = False 
@@ -58,8 +56,10 @@ UA = UA_DICT.get(UA_TYPE, UA_DICT["win"])
 EXTRA_HEADERS = {
     "Accept-Language": "en-GB,en-US;q=0.9,en;q=0.8"
 }
+TOTAL_LINE_REGEX = re.compile(r'(TOTAL\s*DUE|TOTALDUE)', re.I)
 
 # ---------- core scraping ----------------------------------------------------
+
 class GSCCCAScraper:
     """Scrape the latest tax records from GSCCCA pages."""
 
@@ -71,8 +71,11 @@ class GSCCCAScraper:
         self.login_url = "https://apps.gsccca.org/login.asp"
         self.name_search_url = "https://search.gsccca.org/Lien/namesearch.asp"
         self.results = []
+
+        # SSL Context for aiohttp
         self.ssl_context = ssl.create_default_context(cafile=certifi.where())
         
+
 
     def time_sleep(self, a: int = 2500, b: int = 5000) -> int:
         return random.uniform(a, b)
@@ -111,23 +114,9 @@ class GSCCCAScraper:
 
         print(f"[LOGIN] Filling username: {email}")
         await self.page.fill("input[name='txtUserID']", email)
-        await self.page.wait_for_timeout(2000)
 
         print("[LOGIN] Filling password...")
         await self.page.fill("input[name='txtPassword']", password)
-        await self.page.wait_for_timeout(2000) 
-
-        print("[LOGIN] Checking 'Remember login details' checkbox if not already checked...")
-        checkbox = await self.page.query_selector("input[type='checkbox'][name='permanent']")
-        if checkbox:
-            is_checked = await checkbox.is_checked()
-            if not is_checked:
-                await checkbox.click()
-                print("[LOGIN] Checkbox clicked.")
-            else:
-                print("[LOGIN] Checkbox already checked.")
-        else:
-            print("[LOGIN] Checkbox not found on the page.")
 
         try:
             print("[LOGIN] Clicking login button...")
@@ -145,7 +134,7 @@ class GSCCCAScraper:
         else:
             print("[LOGIN] Login failed")
             return False
-
+    
     async def step1_open_homepage(self):
         """Go to homepage & check if logged in."""
         print("[STEP 1] Opening homepage...")
@@ -199,16 +188,16 @@ class GSCCCAScraper:
             search_box = await self.page.query_selector("#txtSearchName")
             await search_box.click()
             for ch in "gordon":
-                await self.page.keyboard.type(ch, delay=random.randint(TYPING_DELAY_MIN, TYPING_DELAY_MAX)) 
+                await self.page.keyboard.type(ch, delay=random.randint(100, 250)) 
             await self.page.wait_for_timeout(self.time_sleep())
 
             await self.page.fill("input[name='txtFromDate']", "")
             for ch in "01/01/2025":
-                await self.page.keyboard.type(ch, delay=random.randint(TYPING_DELAY_MIN, TYPING_DELAY_MAX))
+                await self.page.keyboard.type(ch, delay=random.randint(100, 220))
 
             await self.page.fill("input[name='txtToDate']", "")
             for ch in "09/23/2025":
-                await self.page.keyboard.type(ch, delay=random.randint(TYPING_DELAY_MIN, TYPING_DELAY_MAX))
+                await self.page.keyboard.type(ch, delay=random.randint(100, 220))
             await self.page.wait_for_timeout(self.time_sleep())
 
             await self.page.select_option("select[name='MaxRows']", "100")
@@ -216,7 +205,7 @@ class GSCCCAScraper:
 
             await self.page.select_option("select[name='TableType']", "1")
             await self.page.wait_for_timeout(self.time_sleep())
-        
+ 
             await self.page.click("form[name='SearchType'] input[value='Search']")
             print("[STEP 3] Form filled successfully")
 
@@ -277,6 +266,7 @@ class GSCCCAScraper:
         visited_pages = set()
 
         while True:
+            # Unique marker: first RP link href
             rp_links = await self.page.query_selector_all("a[href*='lienfinal']")
             if not rp_links:
                 print("[WARNING] No RP buttons found on this page")
@@ -291,14 +281,15 @@ class GSCCCAScraper:
             total = len(rp_links)
             print(f"[INFO] Found {total} RP buttons on this page")
 
-            for i in range(min(MAX_RP_TO_PROCESS, total)): 
+            for i in range(total):  
                 try:
-                    current_links = await self.page.query_selector_all("a[href*='lienfinal']")
-                    if i >= len(current_links):
+                    rp_links = await self.page.query_selector_all("a[href*='lienfinal']")
+                    if i >= len(rp_links):
                         continue
 
-                    link = current_links[i]
+                    link = rp_links[i]
 
+                    # Click with retry
                     retries = 3
                     for attempt in range(retries):
                         try:
@@ -315,10 +306,11 @@ class GSCCCAScraper:
                     if data:
                         self.results.append(data)
                         print(f"[SUCCESS] Saved RP index {i+1} → "
-                                f"{data.get('Name Selected','N/A')} | "
-                                f"Book={data.get('Book','')} Page={data.get('Page','')}")
+                              f"{data.get('Name Selected','N/A')} | "
+                              f"Book={data.get('Book','')} Page={data.get('Page','')}")
                         pd.DataFrame(self.results).to_excel("LienResults.xlsx", index=False)
 
+                    # back
                     await asyncio.sleep(2)
                     back_btn = await self.page.query_selector("input[name='bBack']")
                     if back_btn:
@@ -337,6 +329,7 @@ class GSCCCAScraper:
                         pass
                     continue
 
+            # Pagination: look for "Next" explicitly
             next_page = await self.page.query_selector("a:has-text('Next')")
             if next_page:
                 print("[INFO] Going to next page...")
@@ -351,9 +344,68 @@ class GSCCCAScraper:
                 break
 
         self.save_to_excel("LienResults.xlsx")
+
+
+    
+
+    def remove_table_lines(self, bw_inv: np.ndarray) -> np.ndarray:
+        h, w = bw_inv.shape[:2]
+        h_len = max(20, w // 30)
+        v_len = max(20, h // 30)
+        h_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (h_len, 1))
+        v_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (1, v_len))
+        horiz = cv2.morphologyEx(bw_inv, cv2.MORPH_OPEN, h_kernel, iterations=1)
+        vert  = cv2.morphologyEx(bw_inv, cv2.MORPH_OPEN, v_kernel, iterations=1)
+        grid  = cv2.bitwise_or(horiz, vert)
+        return cv2.bitwise_and(bw_inv, cv2.bitwise_not(grid))
+
+    def preprocess_page(self,pil_img: Image.Image) -> np.ndarray:
+        img = np.array(pil_img.convert("RGB"))
+        gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+        scale = 2.0 if max(gray.shape) < 2000 else 1.5
+        gray = cv2.resize(gray, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        gray = clahe.apply(gray)
+        bw_inv = cv2.adaptiveThreshold(
+            gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 31, 10
+        )
+        clean_inv = self.remove_table_lines(bw_inv)
+        return cv2.bitwise_not(clean_inv)
+
+    def find_total_due_line(self, proc_img: np.ndarray) -> str | None:
+        cfg_page = "--oem 3 --psm 6 -l eng -c preserve_interword_spaces=1"
+        page_text = pytesseract.image_to_string(proc_img, config=cfg_page)
+        for raw in page_text.splitlines():
+            if raw.strip() and TOTAL_LINE_REGEX.search(raw.upper()):
+                return raw
+        data_dict = pytesseract.image_to_data(proc_img, config=cfg_page, output_type=pytesseract.Output.DICT)
+        lines = {}
+        for i, txt in enumerate(data_dict["text"]):
+            if txt.strip():
+                key = (data_dict["block_num"][i], data_dict["par_num"][i], data_dict["line_num"][i])
+                lines.setdefault(key, []).append(txt)
+        for parts in lines.values():
+            line = " ".join(parts).strip()
+            if TOTAL_LINE_REGEX.search(line.upper()):
+                return line
+        return None
+    
+    
+    def extract_total_due(self, img):          
+        pil = img.convert("RGB")
         
+        proc = self.preprocess_page(pil)
+        line = self.find_total_due_line(proc)
+        if line:
+            m = re.search(r'(?<!\d)(\d{1,3}(?:,\d{3})*(?:\.\d{2})|\d+\.\d{2})(?!\d)', line)
+            line = m.group(1).replace(',', '') if m else None
+        line = line if line else "Not found"
+        print(f"Total Due: {line}")
+        return line
+
+
     async def parse_rp_detail(self):
-        """ Helper: Parse lienfinal.asp detail page with BeautifulSoup + Viewer URL + Single Page PDF + OCR + Address2 + Zipcode2 + Total Due """
+        """ Helper: Parse lienfinal.asp detail page with BeautifulSoup + Viewer URL + Single Page PDF + OCR + Address1/2 + Zipcode1/2 """
         await self.page.wait_for_load_state("domcontentloaded", timeout=15000)
         await asyncio.sleep(1.5)
         html = await self.page.content()
@@ -363,189 +415,7 @@ class GSCCCAScraper:
         def safe_text(el):
             return el.get_text(" ", strip=True) if el else ""
 
-        def extract_total_due(text: str) -> str:
-            text = text.replace('\n', ' ').replace('\r', ' ')
-
-            def find_fuzzy_match_and_extract_amount(search_text, keyword):
-                lines = [line.strip() for line in search_text.splitlines() if line.strip()]
-                for i, line in enumerate(lines):
-                    if fuzz.ratio(line.upper(), keyword.upper()) >= FUZZY_MATCH_THRESHOLD:
-                        print(f"Fuzzy match found: '{line}' for '{keyword}'")
-                        amounts = re.findall(r"[\d,]+\.\d{2}", line)
-                        if amounts:
-                            return amounts[-1]
-                        
-                        # Look in the next line if no amount found in the current line
-                        if i + 1 < len(lines):
-                            next_line = lines[i+1]
-                            amounts_in_next_line = re.findall(r"[\d,]+\.\d{2}", next_line)
-                            if amounts_in_next_line:
-                                return amounts_in_next_line[-1]
-                return None
-            
-            # Strategy 1: Direct keyword search
-            m1 = re.search(r"TOTAL\s*DUE(?:\s*[:\s-]*\s*)([\d,]+\.\d{2})", text, re.IGNORECASE)
-            m2 = re.search(r"TOT(?:AL)?\s*DUE\s*\$?\s*([\d,]+\.\d{2})", text, re.IGNORECASE)
-            
-            if m1:
-                return f"{float(m1.group(1).replace(',', '')):.2f}"
-            if m2:
-                return f"{float(m2.group(1).replace(',', '')):.2f}"
-
-            # Strategy 2: Calculate from individual tax items
-            print("TOTAL DUE keyword not found. Attempting to calculate from tax items.")
-            amounts = {}
-            patterns = {
-                "TAX": r"TAX\s*\$?\s*([\d,]+\.\d{2})",
-                "PENALTY": r"PENALTY\s*\$?\s*([\d,]+\.\d{2})",
-                "FIFA": r"FIFA\s*\$?\s*([\d,]+\.\d{2})",
-                "GED": r"GED\s*\$?\s*([\d,]+\.\d{2})",
-                "INTEREST": r"INTEREST\s*\$?\s*([\d,]+\.\d{2})",
-                "DEMO LIEN": r"DEMO\s+LIEN\s*\$?\s*([\d,]+\.\d{2})",
-                "PAYMENT": r"PAYMENT\(S\)\s*\$?\s*([\d,]+\.\d{2})"
-            }
-
-            total = 0.0
-            found_items = False
-            for key, pattern in patterns.items():
-                match = re.search(pattern, text, re.IGNORECASE)
-                if match:
-                    found_items = True
-                    try:
-                        amount = float(match.group(1).replace(",", ""))
-                        amounts[key] = amount
-                        print(f"Found {key}: {amount:.2f}")
-                        if key != "PAYMENT":
-                            total += amount
-                        else:
-                            total -= amount
-                    except ValueError:
-                        print(f"Failed to parse amount for {key}")
-
-            if found_items:
-                print(f"Calculated Total Due: {total:.2f}")
-                return f"{total:.2f}"
-            
-            # Strategy 3: Fuzzy keyword matching
-            print("Calculation from tax items failed. Trying fuzzy matching.")
-            fuzzy_amount_str = find_fuzzy_match_and_extract_amount(text, OCR_KEYWORD)
-            if fuzzy_amount_str:
-                try:
-                    return f"{float(fuzzy_amount_str.replace(',', '')):.2f}"
-                except ValueError:
-                    pass
-
-            print("WARNING: Could not find TOTAL DUE or calculate from tax items.")
-            return "Not Found"
-
-        def extract_addresses_from_ocr(text, max_addresses=2):
-            lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
-            addresses = []
-            for idx, ln in enumerate(lines):
-                m = re.search(r'([A-Za-z][A-Za-z0-9\.\'&\-\s]+,\s*[A-Za-z]{2}\s*\d{5})', ln)
-                if m:
-                    city_state_zip = m.group(1).strip()
-                    street = ""
-                    for j in range(1, 6):
-                        if idx - j < 0:
-                            break
-                        prev = lines[idx - j]
-                        if re.search(r'\b(County|Tax|Commissioner|Recorded|Doc:|Rept#|VS\b|Defendant|GRANT|PAYMENT|TOTAL DUE|PHONE|TEL|Fax)\b', prev, re.I):
-                            continue
-                        if re.search(r'^\d+\s', prev) or re.search(r'\b(St(reet)?|Street|Rd|Road|Ave|Avenue|Blvd|Ln|Lane|Dr|Drive|Way|Ct|Court|PKWY|Parkway)\b', prev, re.I):
-                            street = prev
-                            break
-                        if not re.search(r'^\b(Grant|GORDON|LIEN|TOTAL|PAYMENT)\b', prev, re.I):
-                            street = prev
-                            break
-                    full_address = (street + " " + city_state_zip).strip() if street else city_state_zip
-                    zip_m = re.search(r'(\d{5})$', city_state_zip)
-                    zipcode = zip_m.group(1) if zip_m else ""
-                    addresses.append({"address": full_address, "zipcode": zipcode})
-                    if len(addresses) >= max_addresses:
-                        break
-            while len(addresses) < max_addresses:
-                addresses.append({"address": "", "zipcode": ""})
-            return addresses
-        
-        def deskew_image(image):
-            coords = np.column_stack(np.where(image > 0))
-            if coords.size == 0: 
-                return image
-            
-            angle = cv2.minAreaRect(coords)[-1]
-            if angle < -45:
-                angle = -(90 + angle)
-            else:
-                angle = -angle
-            
-            (h, w) = image.shape[:2]
-            center = (w // 2, h // 2)
-            M = cv2.getRotationMatrix2D(center, angle, 1.0)
-            rotated = cv2.warpAffine(image, M, (w, h), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
-            return rotated
-
-        def get_robust_ocr_text(image_path: str) -> str:
-            """
-            Applies a prioritized, intelligent fallback strategy with various image
-            processing techniques to get the best OCR text, focusing on efficiency.
-            """
-            img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
-            
-            deskewed_img = deskew_image(img)
-
-            processing_methods = {
-                "Original": lambda x: x,
-                "Inverted": lambda x: cv2.bitwise_not(x),
-                "Adaptive Threshold": lambda x: cv2.adaptiveThreshold(x, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2),
-                "Otsu Threshold": lambda x: cv2.threshold(x, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1],
-                "CLAHE": lambda x: cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8)).apply(x),
-                "Denoised": lambda x: cv2.fastNlMeansDenoising(x, None, 30, 7, 21),
-                "Sharpened": lambda x: cv2.filter2D(x, -1, kernel=np.array([[-1, -1, -1], [-1, 9, -1], [-1, -1, -1]])),
-                "Contrast Enhanced": lambda x: cv2.convertScaleAbs(x, alpha=1.5, beta=0),
-                "Median Blurred": lambda x: cv2.medianBlur(x, 3),
-                "Unsharp Masked": lambda x: cv2.addWeighted(x, 1.5, cv2.GaussianBlur(x, (0, 0), 3), -0.5, 0),
-            }
-
-            prioritized_methods = [
-                "Original",
-                "Inverted",
-                "Adaptive Threshold",
-                "Otsu Threshold"
-            ]
-
-            print("Trying prioritized OCR methods on deskewed image...")
-            for method_name in prioritized_methods:
-                try:
-                    processed_img = processing_methods[method_name](deskewed_img)
-                    text = pytesseract.image_to_string(Image.fromarray(processed_img), lang="eng")
-                    print(f"OCR Text ({method_name} on Deskewed):\n{text.strip()}")
-                    if "TOTAL DUE" in text.upper():
-                        print(f"SUCCESS: '{OCR_KEYWORD}' found with '{method_name}' method on deskewed image.")
-                        return text.strip()
-                except Exception as e:
-                    print(f"Error with {method_name}: {e}")
-                    continue
-
-            print(f"'{OCR_KEYWORD}' not found. Falling back to other methods...")
-            for method_name, method_func in processing_methods.items():
-                if method_name in prioritized_methods:
-                    continue
-                try:
-                    processed_img = method_func(deskewed_img)
-                    text = pytesseract.image_to_string(Image.fromarray(processed_img), lang="eng")
-                    print(f"OCR Text (Fallback: {method_name} on Deskewed):\n{text.strip()}")
-                    if "TOTAL DUE" in text.upper():
-                        print(f"SUCCESS: '{OCR_KEYWORD}' found with fallback '{method_name}' method.")
-                        return text.strip()
-                except Exception as e:
-                    print(f"Error with fallback {method_name}: {e}")
-                    continue
-
-            print(f"WARNING: '{OCR_KEYWORD}' not found in any method. Returning empty string.")
-            return ""
-
-        # ---------- Normal Data Extraction from HTML ----------
+        # ---------- Normal Data Extraction ----------
         header_table = soup.find("table", cellpadding="2")
         if header_table:
             rows = header_table.find_all("tr")
@@ -606,15 +476,64 @@ class GSCCCAScraper:
         if record_info:
             data["Record Added"] = safe_text(record_info)
 
-        # ---------- Updated PDF & OCR Logic ----------
+        # ---------- helper: extract up to 2 addresses (Address) ----------
+        def extract_addresses_from_ocr(text, max_addresses=2):
+            """
+            Return list of dicts: [{'address': ..., 'zipcode': ...}, ...] length == max_addresses (padded).
+            Logic: look for lines that contain 'City, ST 12345' pattern (2-letter state + 5-digit zip),
+            then take preceding non-header line(s) as street line when available.
+            """
+            lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+            addresses = []
+
+            for idx, ln in enumerate(lines):
+                # match city/state + zip (e.g. "MABLETON, GA 30126" or "Calhoun, GA 30701")
+                m = re.search(r'([A-Za-z][A-Za-z0-9\.\'&\-\s]+,\s*[A-Za-z]{2}\s*\d{5})', ln)
+                if m:
+                    city_state_zip = m.group(1).strip()
+                    # look upward for a plausible street line (up to 3 lines above)
+                    street = ""
+                    for j in range(1, 4):
+                        if idx - j < 0:
+                            break
+                        prev = lines[idx - j]
+                        # skip obvious header/labels
+                        if re.search(r'\b(County|Tax|Commissioner|Recorded|Doc:|Rept#|VS\b|Defendant|GRANT|PAYMENT|TOTAL DUE|PHONE|TEL|Fax)\b', prev, re.I):
+                            continue
+                        # prefer lines with street numbers or common address tokens
+                        if re.search(r'^\d+\s', prev) or re.search(r'\b(St(reet)?|Street|Rd(?!\w)|Road|Highway|HWY|Ave|Avenue|Blvd|Lane|Ln|Dr(?!\w)|Drive|Way|Court|Ct|Parkway|PKWY|Memorial|HWY|HW|HWY|WY|SW|NE|N\.E\.|S\.W\.)\b', prev, re.I) or re.search(r'\d', prev):
+                            street = prev
+                            break
+                        # fallback: take the nearest non-header line
+                        if not re.search(r'^\b(Grant|GORDON|GORDON COUNTY|SCOTT|LIEN|LIEN Bk|TOTAL|PAYMENT)\b', prev, re.I):
+                            street = prev
+                            break
+
+                    full_address = (street + " " + city_state_zip).strip() if street else city_state_zip
+                    zip_m = re.search(r'(\d{5})$', city_state_zip)
+                    zipcode = zip_m.group(1) if zip_m else ""
+                    addresses.append({"address": full_address, "zipcode": zipcode})
+
+                    if len(addresses) >= max_addresses:
+                        break
+
+            # pad to desired length
+            while len(addresses) < max_addresses:
+                addresses.append({"address": "", "zipcode": ""})
+
+            return addresses
+        
+        
+
+
+        # -------------------------------------------------------------------------
+
+        # ---------- Viewer URL + Single Page PDF ----------
         viewer_script = soup.find("script", string=lambda t: t and "ViewImage" in t)
         if viewer_script:
-            try:
-                script_text = viewer_script.string
-                match = re.search(r'var iLienID\s*=\s*(\d+);', script_text)
-                if not match:
-                    raise ValueError("Lien ID not found in script.")
-                
+            script_text = viewer_script.string
+            match = re.search(r'var iLienID\s*=\s*(\d+);', script_text)
+            if match:
                 lien_id = match.group(1)
                 county = re.search(r'var county\s*=\s*"(\d+)"', script_text).group(1)
                 book = re.search(r'var book\s*=\s*"(\d+)"', script_text).group(1)
@@ -622,123 +541,169 @@ class GSCCCAScraper:
                 userid = re.search(r'var user\s*=\s*(\d+)', script_text).group(1)
                 appid = re.search(r'var appid\s*=\s*(\d+)', script_text).group(1)
 
-                viewer_url = (f"https://search.gsccca.org/Imaging/HTML5Viewer.aspx?id={lien_id}&key1={book}&key2={page_num}&county={county}&userid={userid}&appid={appid}")
+                viewer_url = (
+                    f"https://search.gsccca.org/Imaging/HTML5Viewer.aspx?"
+                    f"id={lien_id}&key1={book}&key2={page_num}&county={county}&userid={userid}&appid={appid}"
+                )
                 data["PDF Document URL"] = viewer_url
+                print(f"[INFO] Viewer URL captured → {viewer_url}")
 
-                debtor_name = data.get("Direct Party (Debtor)", "UnknownDebtor").split(";")[0][:40].replace(" ", "_").replace(",", "")
+                # ---------- PDF File Name ----------
+                debtor_name = data.get("Direct Party (Debtor)", "UnknownDebtor").split(";")[0][:40]
+                debtor_name = debtor_name.replace(" ", "_").replace(",", "")
                 pdf_name = f"{debtor_name}_Page{page_num}.pdf"
+
                 download_dir = "downloads"
                 os.makedirs(download_dir, exist_ok=True)
                 pdf_path = os.path.join(download_dir, pdf_name)
-                tmp_img = os.path.join(download_dir, f"tmp_{page_num}.png")
 
-                popup = await self.page.context.new_page()
-                await popup.goto(viewer_url, timeout=30000)
-                await popup.wait_for_load_state("domcontentloaded")
-                await asyncio.sleep(2)
-                await popup.wait_for_selector("div.vtm_imageClipper canvas", timeout=10000)
-                canvas = await popup.query_selector("div.vtm_imageClipper canvas")
-
-                if canvas:
-                    await canvas.screenshot(path=tmp_img)
-                    data["PDF"] = pdf_name
-                
-                await popup.close()
-                
                 try:
-                    text = get_robust_ocr_text(tmp_img)
-                    data["OCR_Text"] = text
-                    
-                    if text:
-                        addr_list = extract_addresses_from_ocr(data["OCR_Text"], max_addresses=2)
-                        data["Address2"] = addr_list[1]["address"]
-                        data["Zipcode2"] = addr_list[1]["zipcode"]
-                        data["Total Due"] = extract_total_due(data["OCR_Text"])
-                    else:
-                        data["OCR_Text"] = ""
-                        data["Address2"] = ""
-                        data["Zipcode2"] = ""
-                        data["Total Due"] = ""
-                except Exception as e:
-                    print(f"[ERROR] Failed to process OCR and extract data: {e}")
-                    data["OCR_Text"] = ""
-                    data["Address2"] = ""
-                    data["Zipcode2"] = ""
-                    data["Total Due"] = ""
-                
-                if os.path.exists(tmp_img):
-                    os.remove(tmp_img)
+                    popup = await self.page.context.new_page()
+                    await popup.goto(viewer_url, timeout=50000)
+                    await popup.wait_for_load_state("domcontentloaded")
+                    await asyncio.sleep(3)  # let canvas render
 
-            except Exception as e:
-                print(f"[ERROR] An issue occurred during PDF/OCR processing: {e}")
-                data.update({
-                    "PDF Document URL": "",
-                    "PDF": "",
-                    "OCR_Text": "",
-                    "Address2": "",
-                    "Zipcode2": "",
-                    "Total Due": ""
-                })
+                    # Actual single page from canvas
+                    await popup.wait_for_selector("div.vtm_imageClipper canvas", timeout=10000)
+                    canvas = await popup.query_selector("div.vtm_imageClipper canvas")
+
+                    if canvas:
+                        tmp_img = os.path.join(download_dir, f"tmp_{page_num}.png")
+                        await canvas.screenshot(path=tmp_img)
+
+                        # Convert single PNG to PDF
+                        with open(pdf_path, "wb") as f:
+                            f.write(img2pdf.convert([tmp_img]))
+
+                        data["PDF"] = pdf_name
+                        print(f" [INFO] PDF saved (single page) → {pdf_path}")
+
+                        # ----------- OCR Extraction + Address1/2 -----------
+                        try:
+                            img = Image.open(tmp_img).convert("L")
+                            text = pytesseract.image_to_string(img, lang="eng")
+                            data["OCR_Text"] = text.strip()
+                            print(f" [OCR] OCR extracted → {len(text.split())} words")
+
+                            # extract up to 2 addresses
+                            addr_list = extract_addresses_from_ocr(data["OCR_Text"], max_addresses=2)
+                            data["Address"] = addr_list[1]["address"]
+                            data["Zipcode"] = addr_list[1]["zipcode"]
+                            
+                            proc_img = self.preprocess_page(img)
+                            line = self.find_total_due_line(proc_img)
+                            data["Total Due"] = self.extract_total_due(img=img)
+
+                        except Exception as e:
+                            print(f"[ERROR] OCR extraction failed: {e}")
+                            data["OCR_Text"] = ""
+                            data["Address"] = ""
+                            data["Zipcode"] = ""
+                            data["Total Due"] = ""
+                        # ----------------------------------------------------
+
+                        os.remove(tmp_img)
+                    else:
+                        print("[WARNING] No canvas found in popup")
+                        data["PDF"] = ""
+                        data["OCR_Text"] = ""
+                        data["Address"] = ""
+                        data["Zipcode"] = ""
+                        data["Total Due"] = ""
+
+                    await popup.close()
+
+                except Exception as e:
+                    print(f"[ERROR] PDF generation failed: {e}")
+                    data["PDF"] = ""
+                    data["OCR_Text"] = ""
+                    data["Address"] = ""
+                    data["Zipcode"] = ""
+                    data["Total Due"] = ""
+            else:
+                data["PDF Document URL"] = ""
+                data["PDF"] = ""
+                data["OCR_Text"] = ""
+                data["Address1"] = ""
+                data["Zipcode"] = ""
+                data["Total Due"] = ""
+        else:
+            data["PDF Document URL"] = ""
+            data["PDF"] = ""
+            data["OCR_Text"] = ""
+            data["Address"] = ""
+            data["Zipcode"] = ""
+            data["Total Due"] = ""
 
         return data
-        
+
+
     def save_to_excel(self, filename="LienResults.xlsx"):
+        """ Save scraped results to Excel with clickable PDF links. """
+
         if not hasattr(self, "results") or not self.results:
             print("[WARNING] No results to save")
             return
 
         df = pd.DataFrame(self.results)
+
         columns = [
-            "Direct Party (Debtor)", "Reverse Party (Claimant)",
-            "Address2", "Zipcode2", "Total Due",
-            "Name Selected", "Searched", "User Selected Dates", "County Good From", "Query Made",
-            "County", "Instrument", "Date Filed", "Time", "Book", "Page",
-            "Description", "Sec/GMD", "District", "Land Lot", "Subdivision",
-            "Unit", "Block", "Lot", "Comment",
-            "Cross-Referenced Instruments", "Record Added",
-            "PDF Document URL", "PDF", "OCR_Text",
+            "Direct Party (Debtor)", "Reverse Party (Claimant)", "Address", "Zipcode", "Total Due",
+            "County", "Instrument", "Date Filed", "Book", "Page","Description",
+            "PDF Document URL", "PDF",
         ]
+
         for col in columns:
             if col not in df.columns:
                 df[col] = ""
+
+        # Ensure column order
         df = df[columns]
 
+        # 🟢 Base directory always = script ka folder
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        downloads_dir = os.path.join(base_dir, "downloads")
+
+        # Replace PDF filenames with clickable file:// links
+        if "PDF" in df.columns:
+            df["PDF"] = df["PDF"].apply(
+                lambda x: f'=HYPERLINK("file:///{os.path.join(downloads_dir, x).replace(os.sep, "/")}", "{x}")'
+                if isinstance(x, str) and x.strip() else ""
+            )
+
+        # Create timestamped filename
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         base, ext = os.path.splitext(filename)
         final_filename = f"{base}_{ts}{ext}"
-        df.to_excel(final_filename, index=False)
+
+        # Save with formulas intact
+        with pd.ExcelWriter(final_filename, engine="openpyxl") as writer:
+            df.to_excel(writer, index=False)
+
+        print(f"[INFO] Saved {len(df)} records to {final_filename}")
         
-        import openpyxl
-        wb = openpyxl.load_workbook(final_filename)
-        ws = wb.active
-        headers = {cell.value: cell.column for cell in ws[1]}
-        pdf_col = headers.get("PDF")
-        if pdf_col:
-            download_dir = "downloads"
-            for row in range(2, ws.max_row + 1):
-                pdf_name = ws.cell(row=row, column=pdf_col).value
-                if pdf_name:
-                    pdf_path = os.path.abspath(os.path.join(download_dir, pdf_name))
-                    ws.cell(row=row, column=pdf_col).value = f'=HYPERLINK("{pdf_path}", "{pdf_name}")'
-        wb.save(final_filename)
-        print(f"[INFO] Saved {len(df)} records to {final_filename} (with PDF links)")
+        
 
     async def scrape(self, page_url: str) -> Dict[str, Any]:
         """Open *url* in the current page and return latest post data."""
         try:
             await self.page.goto(page_url, wait_until="domcontentloaded", timeout=60_000)
             await self.page.wait_for_timeout(3000)
+
             title = await self.page.title()
+
             rows = await self.page.query_selector_all("table tr")
             data = []
             for row in rows:
                 text = await row.inner_text()
                 data.append(text.strip())
+
             return {
                 "page_title": title,
                 "row_count": len(rows),
                 "rows": data[:10]
             }
+
         except Exception as e:
             console.print(f"[red]Scrape error: {e}[/red]")
             return {}
@@ -754,6 +719,7 @@ class GSCCCAScraper:
                 "--start-maximized",
             ]
         )
+
         if STATE_FILE.exists():
             print("Loaded session from storage...")
             context = await browser.new_context(
@@ -777,6 +743,7 @@ class GSCCCAScraper:
                 extra_http_headers=EXTRA_HEADERS,
             )
             self.page = await browser.new_page()
+
         if STATE_FILE.exists():
             print("Loaded session from cookies.json...")
             await context.add_cookies(json.loads(Path(STATE_FILE).read_text())["cookies"])
@@ -788,9 +755,12 @@ class GSCCCAScraper:
                 if await self.login_(email=self.email, password=self.password):
                     await self.page.wait_for_timeout(self.time_sleep())
                     await self.dump_cookies()
+
+        # -------- Steps after login --------
         if not await self.step1_open_homepage():
             await self.login_(email=self.email, password=self.password)
             await self.page.wait_for_timeout(self.time_sleep())
+
         await self.step2_click_name_search()
         await self.check_and_handle_announcement()
         await self.step3_fill_form()
@@ -803,9 +773,12 @@ class GSCCCAScraper:
         await browser.close()
         await playwright.stop()
 
+
+
 async def main() -> None:
     scraper = GSCCCAScraper()
     await scraper.run()
+
 
 if __name__ == "__main__":
     try:
@@ -814,3 +787,5 @@ if __name__ == "__main__":
         console.print("\n[bold yellow]Interrupted![/bold yellow]\n", traceback.format_exc())
     finally:
         console.print("[bold green]Exiting...[/bold green]")
+
+
