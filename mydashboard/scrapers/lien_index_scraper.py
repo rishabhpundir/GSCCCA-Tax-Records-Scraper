@@ -665,6 +665,8 @@ class GSCCCAScraper:
         base, ext = os.path.splitext(filename)
         final_filename = f"{base}_{ts}{ext}"
         
+        output_dir = Path("Output")
+        output_dir.mkdir(exist_ok=True)
         final_path = os.path.join(output_dir, final_filename)
 
         with pd.ExcelWriter(final_path, engine="openpyxl") as writer:

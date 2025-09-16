@@ -3,89 +3,285 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Data Scraper Dashboard</title>
+  <title>Data Scraper Dashboard | GSCCCA</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
   <style>
-    /* 3D Button Animation */
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+    
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      font-family: 'Inter', sans-serif;
+    }
+    
+    body {
+      overflow-x: hidden;
+      background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+      color: #e2e8f0;
+      min-height: 100vh;
+    }
+    
+    #particles-js {
+      position: fixed;
+      width: 100%;
+      height: 100%;
+      z-index: -1;
+    }
+    
+    .glass-card {
+      background: rgba(255, 255, 255, 0.07);
+      backdrop-filter: blur(12px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 16px;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+    }
+    
     .scraper-btn {
+      position: relative;
+      overflow: hidden;
+      transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+      transform-style: preserve-3d;
       perspective: 1000px;
     }
-    .scraper-btn span {
-      display: inline-block;
-      transform: rotateX(0deg);
-      transition: transform 0.4s ease, box-shadow 0.4s ease;
+    
+    .scraper-btn::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: -100%;
+      width: 100%;
+      height: 100%;
+      background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+      transition: 0.5s;
     }
-    .scraper-btn:hover span {
-      transform: rotateX(15deg) scale(1.05);
-      box-shadow: 0 10px 20px rgba(0,0,0,0.25);
+    
+    .scraper-btn:hover::before {
+      left: 100%;
     }
-    /* Table hover glow */
-    table tbody tr:hover {
-      background-color: #f1f5f9;
-      transform: scale(1.01);
-      transition: all 0.2s ease-in-out;
+    
+    .scraper-btn:hover {
+      transform: translateY(-5px) scale(1.02);
+      box-shadow: 0 15px 30px rgba(0, 0, 0, 0.3);
+    }
+    
+    .scraper-btn:active {
+      transform: translateY(0) scale(0.98);
+    }
+    
+    .pulse {
+      animation: pulse 2s infinite;
+    }
+    
+    @keyframes pulse {
+      0% { box-shadow: 0 0 0 0 rgba(74, 222, 128, 0.7); }
+      70% { box-shadow: 0 0 0 15px rgba(74, 222, 128, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(74, 222, 128, 0); }
+    }
+    
+    .floating {
+      animation: floating 6s ease-in-out infinite;
+    }
+    
+    @keyframes floating {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-10px); }
+    }
+    
+    .table-row {
+      transition: all 0.3s ease;
+      border-left: 3px solid transparent;
+    }
+    
+    .table-row:hover {
+      background: rgba(74, 222, 128, 0.1) !important;
+      border-left: 3px solid #4ade80;
+      transform: translateX(5px);
+    }
+    
+    .progress-bar {
+      height: 4px;
+      width: 0%;
+      background: linear-gradient(90deg, #4ade80, #3b82f6);
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      border-radius: 0 0 8px 8px;
+      transition: width 0.3s ease;
+    }
+    
+    .fade-in {
+      animation: fadeIn 0.8s ease-out;
+    }
+    
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(20px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    
+    .glow-text {
+      text-shadow: 0 0 20px rgba(74, 222, 128, 0.5);
+    }
+    
+    .data-counter {
+      font-variant-numeric: tabular-nums;
+      transition: all 0.5s ease;
+    }
+    
+    /* Custom scrollbar */
+    ::-webkit-scrollbar {
+      width: 8px;
+    }
+    
+    ::-webkit-scrollbar-track {
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: 10px;
+    }
+    
+    ::-webkit-scrollbar-thumb {
+      background: linear-gradient(180deg, #4ade80, #3b82f6);
+      border-radius: 10px;
+    }
+    
+    ::-webkit-scrollbar-thumb:hover {
+      background: linear-gradient(180deg, #3b82f6, #4ade80);
     }
   </style>
 </head>
-<body class="bg-gradient-to-br from-gray-100 to-gray-200 min-h-screen font-sans">
+<body class="antialiased">
+  <!-- Particles Background -->
+  <div id="particles-js"></div>
 
-  <!-- Container -->
-  <div class="max-w-7xl mx-auto p-6">
-    <h1 class="text-4xl font-bold text-center text-gray-800 mb-8 drop-shadow-md">
-      Data Scraper Dashboard
-    </h1>
+  <!-- Main Container -->
+  <div class="max-w-7xl mx-auto px-4 py-8">
+    <!-- Header -->
+    <header class="text-center mb-12 fade-in">
+      <div class="floating inline-block mb-6">
+        <div class="w-20 h-20 mx-auto bg-gradient-to-br from-green-400 to-blue-500 rounded-2xl flex items-center justify-center shadow-2xl">
+          <i class="fas fa-database text-white text-3xl"></i>
+        </div>
+      </div>
+      <h1 class="text-5xl font-bold mb-4 bg-gradient-to-r from-green-400 to-blue-500 bg-clip-text text-transparent glow-text">
+        GSCCCA Data Scraper Dashboard
+      </h1>
+      <p class="text-xl text-gray-300 max-w-3xl mx-auto">
+        Advanced web scraping dashboard for tax lien and real estate data extraction
+      </p>
+    </header>
 
-    <!-- Status -->
-    <div id="statusMessage"
-         class="hidden text-center py-3 px-4 rounded-lg shadow-md mb-6 transition-all">
+    <!-- Status Message -->
+    <div id="statusMessage" class="glass-card p-4 mb-8 text-center transition-all duration-500 opacity-0 hidden">
+      <div class="flex items-center justify-center">
+        <i class="fas fa-info-circle mr-3"></i>
+        <span id="statusText"></span>
+      </div>
+      <div class="progress-bar"></div>
     </div>
 
-    <!-- Buttons -->
-    <div class="flex justify-center gap-8 mb-10">
-      <button onclick="startScraper('lien')"
-              class="scraper-btn bg-green-500 text-white px-8 py-4 rounded-xl text-lg font-semibold shadow-md hover:bg-green-600 active:scale-95 transition-all">
-        <span>Start Lien Scraper</span>
-      </button>
-      <button onclick="startScraper('realestate')"
-              class="scraper-btn bg-blue-500 text-white px-8 py-4 rounded-xl text-lg font-semibold shadow-md hover:bg-blue-600 active:scale-95 transition-all">
-        <span>Start Real Estate Scraper</span>
-      </button>
+    <!-- Stats Cards -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
+      <div class="glass-card p-6 text-center fade-in" style="animation-delay: 0.1s;">
+        <div class="w-14 h-14 mx-auto bg-green-500/20 rounded-xl flex items-center justify-center mb-4">
+          <i class="fas fa-file-contract text-green-400 text-2xl"></i>
+        </div>
+        <h3 class="text-3xl font-bold data-counter" id="lienCount">{{ lien_data|length }}</h3>
+        <p class="text-gray-400 mt-2">Lien Records</p>
+      </div>
+      
+      <div class="glass-card p-6 text-center fade-in" style="animation-delay: 0.2s;">
+        <div class="w-14 h-14 mx-auto bg-blue-500/20 rounded-xl flex items-center justify-center mb-4">
+          <i class="fas fa-home text-blue-400 text-2xl"></i>
+        </div>
+        <h3 class="text-3xl font-bold data-counter" id="realestateCount">{{ realestate_data|length }}</h3>
+        <p class="text-gray-400 mt-2">Real Estate Records</p>
+      </div>
+      
+      <div class="glass-card p-6 text-center fade-in" style="animation-delay: 0.3s;">
+        <div class="w-14 h-14 mx-auto bg-purple-500/20 rounded-xl flex items-center justify-center mb-4">
+          <i class="fas fa-bolt text-purple-400 text-2xl"></i>
+        </div>
+        <h3 class="text-3xl font-bold data-counter" id="totalCount">{{ lien_data|length|add:realestate_data|length }}</h3>
+        <p class="text-gray-400 mt-2">Total Records</p>
+      </div>
     </div>
 
-    <!-- Tables -->
-    <div class="space-y-12">
+    <!-- Control Panel -->
+    <div class="glass-card p-8 mb-12 fade-in">
+      <h2 class="text-2xl font-semibold mb-6 text-center flex items-center justify-center">
+        <i class="fas fa-play-circle mr-3 text-blue-400"></i>
+        Scraper Control Panel
+      </h2>
+      
+      <div class="flex flex-col md:flex-row justify-center gap-6">
+        <button onclick="startScraper('lien')" class="scraper-btn group">
+          <div class="bg-gradient-to-br from-green-500 to-green-600 px-8 py-4 rounded-xl text-lg font-semibold text-white flex items-center justify-center">
+            <i class="fas fa-play mr-3 transform group-hover:scale-110 transition-transform"></i>
+            <span>Start Lien Scraper</span>
+          </div>
+        </button>
+        
+        <button onclick="startScraper('realestate')" class="scraper-btn group">
+          <div class="bg-gradient-to-br from-blue-500 to-blue-600 px-8 py-4 rounded-xl text-lg font-semibold text-white flex items-center justify-center">
+            <i class="fas fa-play mr-3 transform group-hover:scale-110 transition-transform"></i>
+            <span>Start Real Estate Scraper</span>
+          </div>
+        </button>
+      </div>
+      
+      <div class="mt-6 flex justify-center">
+        <button onclick="loadInitialData()" class="text-sm text-gray-400 hover:text-white transition-colors flex items-center">
+          <i class="fas fa-sync-alt mr-2"></i>
+          Refresh Data
+        </button>
+      </div>
+    </div>
+
+    <!-- Data Tables -->
+    <div class="space-y-8">
       <!-- Lien Data -->
-      <div class="bg-white rounded-2xl shadow-lg p-6">
-        <h2 class="text-2xl font-semibold mb-4 border-b pb-2 text-gray-700">Lien Data</h2>
-        <div class="overflow-x-auto">
-          <table class="w-full border-collapse">
-            <thead class="bg-gray-100 text-gray-700">
-              <tr>
-                <th class="p-3 text-left">Direct Party</th>
-                <th class="p-3 text-left">Reverse Party</th>
-                <th class="p-3 text-left">Address</th>
-                <th class="p-3 text-left">Zipcode</th>
-                <th class="p-3 text-left">Total Due</th>
-                <th class="p-3 text-left">County</th>
-                <th class="p-3 text-left">Instrument</th>
-                <th class="p-3 text-left">Date Filed</th>
-                <th class="p-3 text-left">Book</th>
-                <th class="p-3 text-left">Page</th>
+      <div class="glass-card p-6 fade-in">
+        <div class="flex items-center justify-between mb-6">
+          <h2 class="text-2xl font-semibold flex items-center">
+            <i class="fas fa-file-contract text-green-400 mr-3"></i>
+            Lien Data
+          </h2>
+          <span class="bg-green-500/20 text-green-400 px-3 py-1 rounded-full text-sm">
+            <span id="lienLiveCount">{{ lien_data|length }}</span> records
+          </span>
+        </div>
+        
+        <div class="overflow-x-auto rounded-2xl">
+          <table class="w-full">
+            <thead>
+              <tr class="bg-gray-800/50">
+                <th class="p-4 text-left">Direct Party</th>
+                <th class="p-4 text-left">Reverse Party</th>
+                <th class="p-4 text-left">Address</th>
+                <th class="p-4 text-left">Zipcode</th>
+                <th class="p-4 text-left">Total Due</th>
+                <th class="p-4 text-left">County</th>
+                <th class="p-4 text-left">Instrument</th>
+                <th class="p-4 text-left">Date Filed</th>
+                <th class="p-4 text-left">Book</th>
+                <th class="p-4 text-left">Page</th>
+                
               </tr>
             </thead>
-            <tbody id="lienTable" class="text-sm text-gray-600">
+            <tbody id="lienTable" class="divide-y divide-gray-700/50">
               {% for item in lien_data %}
-              <tr class="border-b">
-                <td class="p-3">{{ item.direct_party_debtor }}</td>
-                <td class="p-3">{{ item.reverse_party_claimant }}</td>
-                <td class="p-3">{{ item.address }}</td>
-                <td class="p-3">{{ item.zipcode }}</td>
-                <td class="p-3">{{ item.total_due }}</td>
-                <td class="p-3">{{ item.county }}</td>
-                <td class="p-3">{{ item.instrument }}</td>
-                <td class="p-3">{{ item.date_filed }}</td>
-                <td class="p-3">{{ item.book }}</td>
-                <td class="p-3">{{ item.page }}</td>
+              <tr class="table-row hover:bg-gray-700/20">
+                <td class="p-4">{{ item.direct_party_debtor }}</td>
+                <td class="p-4">{{ item.reverse_party_claimant }}</td>
+                <td class="p-4">{{ item.address }}</td>
+                <td class="p-4">{{ item.zipcode }}</td>
+                <td class="p-4 font-mono">{{ item.total_due }}</td>
+                <td class="p-4">{{ item.county }}</td>
+                <td class="p-4">{{ item.instrument }}</td>
+                <td class="p-4">{{ item.date_filed }}</td>
+                <td class="p-4">{{ item.book }}</td>
+                <td class="p-4">{{ item.page }}</td>
               </tr>
               {% endfor %}
             </tbody>
@@ -94,27 +290,44 @@
       </div>
 
       <!-- Real Estate Data -->
-      <div class="bg-white rounded-2xl shadow-lg p-6">
-        <h2 class="text-2xl font-semibold mb-4 border-b pb-2 text-gray-700">Real Estate Data</h2>
-        <div class="overflow-x-auto">
-          <table class="w-full border-collapse">
-            <thead class="bg-gray-100 text-gray-700">
-              <tr>
-                <th class="p-3 text-left">Search Name</th>
-                <th class="p-3 text-left">Entity Index</th>
-                <th class="p-3 text-left">Doc Index</th>
-                <th class="p-3 text-left">Final URL</th>
-                <th class="p-3 text-left">PDF Viewer</th>
+      <div class="glass-card p-6 fade-in">
+        <div class="flex items-center justify-between mb-6">
+          <h2 class="text-2xl font-semibold flex items-center">
+            <i class="fas fa-home text-blue-400 mr-3"></i>
+            Real Estate Data
+          </h2>
+          <span class="bg-blue-500/20 text-blue-400 px-3 py-1 rounded-full text-sm">
+            <span id="realestateLiveCount">{{ realestate_data|length }}</span> records
+          </span>
+        </div>
+        
+        <div class="overflow-x-auto rounded-2xl">
+          <table class="w-full">
+            <thead>
+              <tr class="bg-gray-800/50">
+                <th class="p-4 text-left">Search Name</th>
+                <th class="p-4 text-left">Entity Index</th>
+                <th class="p-4 text-left">Doc Index</th>
+                <th class="p-4 text-left">Final URL</th>
+                <th class="p-4 text-left">PDF Viewer</th>
               </tr>
             </thead>
-            <tbody id="realestateTable" class="text-sm text-gray-600">
+            <tbody id="realestateTable" class="divide-y divide-gray-700/50">
               {% for item in realestate_data %}
-              <tr class="border-b">
-                <td class="p-3">{{ item.search_name }}</td>
-                <td class="p-3">{{ item.entity_index }}</td>
-                <td class="p-3">{{ item.doc_index }}</td>
-                <td class="p-3">{{ item.final_url|truncatechars:30 }}</td>
-                <td class="p-3">{{ item.pdf_viewer|truncatechars:30 }}</td>
+              <tr class="table-row hover:bg-gray-700/20">
+                <td class="p-4">{{ item.search_name }}</td>
+                <td class="p-4 text-center">{{ item.entity_index }}</td>
+                <td class="p-4 text-center">{{ item.doc_index }}</td>
+                <td class="p-4">
+                  <a href="{{ item.final_url }}" target="_blank" class="text-blue-400 hover:text-blue-300 transition-colors truncate block max-w-xs">
+                    {{ item.final_url|truncatechars:30 }}
+                  </a>
+                </td>
+                <td class="p-4">
+                  <a href="{{ item.pdf_viewer }}" target="_blank" class="text-blue-400 hover:text-blue-300 transition-colors truncate block max-w-xs">
+                    {{ item.pdf_viewer|truncatechars:30 }}
+                  </a>
+                </td>
               </tr>
               {% endfor %}
             </tbody>
@@ -122,214 +335,340 @@
         </div>
       </div>
     </div>
+
+    <!-- Footer -->
+    <footer class="text-center mt-16 py-8 text-gray-500 text-sm">
+      <p>GSCCCA Data Scraper Dashboard • Built with Django & Tailwind CSS</p>
+      <p class="mt-2">© 2025 Tax Records Automation System</p>
+    </footer>
   </div>
 
-  <!-- JS -->
-<script>
+  <!-- JavaScript -->
+  <script src="https://cdn.jsdelivr.net/particles.js/2.0.0/particles.min.js"></script>
+  <script>
+    // Initialize particles background
+    particlesJS('particles-js', {
+      particles: {
+        number: { value: 80, density: { enable: true, value_area: 800 } },
+        color: { value: "#4ade80" },
+        shape: { type: "circle" },
+        opacity: { value: 0.5, random: true },
+        size: { value: 3, random: true },
+        line_linked: {
+          enable: true,
+          distance: 150,
+          color: "#3b82f6",
+          opacity: 0.4,
+          width: 1
+        },
+        move: {
+          enable: true,
+          speed: 2,
+          direction: "none",
+          random: true,
+          straight: false,
+          out_mode: "out",
+          bounce: false
+        }
+      },
+      interactivity: {
+        detect_on: "canvas",
+        events: {
+          onhover: { enable: true, mode: "repulse" },
+          onclick: { enable: true, mode: "push" },
+          resize: true
+        }
+      },
+      retina_detect: true
+    });
+
+    // Original JavaScript logic with enhancements
     let isLienScraperRunning = false;
     let isRealEstateScraperRunning = false;
     let pollingInterval = null;
     let isInitialLoadDone = false;
 
-    // Page load hone par initial data load karein (but ONLY once)
     document.addEventListener('DOMContentLoaded', function() {
-        console.log('Page loaded, loading initial data once...');
-        if (!isInitialLoadDone) {
-            // Wait for tables to be fully rendered
-            setTimeout(loadInitialData, 100);
-            isInitialLoadDone = true;
-        }
+      console.log('Page loaded, loading initial data once...');
+      if (!isInitialLoadDone) {
+        setTimeout(loadInitialData, 100);
+        isInitialLoadDone = true;
+      }
+      
+      // Animate counters
+      animateCounters();
     });
 
+    function animateCounters() {
+      const counters = document.querySelectorAll('.data-counter');
+      counters.forEach(counter => {
+        const target = parseInt(counter.innerText);
+        let current = 0;
+        const duration = 2000;
+        const steps = 60;
+        const increment = target / steps;
+        const timer = setInterval(() => {
+          current += increment;
+          if (current >= target) {
+            counter.innerText = target;
+            clearInterval(timer);
+          } else {
+            counter.innerText = Math.round(current);
+          }
+        }, duration / steps);
+      });
+    }
+
     function loadInitialData() {
-        console.log('Loading initial data...');
-        fetch(`/get-latest-data/?type=lien`)
-            .then(response => response.json())
-            .then(data => updateTableUI('lien', data))
-            .catch(error => console.error('Error loading lien data:', error));
-        
-        fetch(`/get-latest-data/?type=realestate`)
-            .then(response => response.json())
-            .then(data => updateTableUI('realestate', data))
-            .catch(error => console.error('Error loading realestate data:', error));
+      console.log('Loading initial data...');
+      showStatus('Loading latest data...', 'blue');
+      
+      fetch(`/get-latest-data/?type=lien`)
+        .then(response => response.json())
+        .then(data => {
+          updateTableUI('lien', data);
+          updateCounter('lienLiveCount', data.data?.length || 0);
+        })
+        .catch(error => console.error('Error loading lien data:', error));
+      
+      fetch(`/get-latest-data/?type=realestate`)
+        .then(response => response.json())
+        .then(data => {
+          updateTableUI('realestate', data);
+          updateCounter('realestateLiveCount', data.data?.length || 0);
+          hideStatus();
+        })
+        .catch(error => console.error('Error loading realestate data:', error));
     }
 
     function startScraper(type) {
-        console.log(`Starting ${type} scraper...`);
+      console.log(`Starting ${type} scraper...`);
+      
+      const buttons = document.querySelectorAll('button');
+      buttons.forEach(btn => btn.disabled = true);
+      
+      if (type === 'lien') {
+        isLienScraperRunning = true;
+      } else {
+        isRealEstateScraperRunning = true;
+      }
+      
+      if (isLienScraperRunning || isRealEstateScraperRunning) {
+        startPolling();
+      }
+      
+      showStatus(`Starting ${type} scraper...`, 'blue');
+      
+      fetch('/start-scraper/', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRFToken': getCookie('csrftoken')
+        },
+        body: JSON.stringify({scraper_type: type})
+      })
+      .then(response => response.json())
+      .then(data => {
+        showStatus(data.status || 'Scraper started successfully', 'green');
+      })
+      .catch(error => {
+        showStatus('Error starting scraper: ' + error, 'red');
+        buttons.forEach(btn => btn.disabled = false);
         
-        const buttons = document.querySelectorAll('button');
-        buttons.forEach(btn => btn.disabled = true);
-        
-        // Set the specific scraper as running
         if (type === 'lien') {
-            isLienScraperRunning = true;
+          isLienScraperRunning = false;
         } else {
-            isRealEstateScraperRunning = true;
+          isRealEstateScraperRunning = false;
         }
         
-        // Start polling only if any scraper is running
-        if (isLienScraperRunning || isRealEstateScraperRunning) {
-            startPolling();
+        if (!isLienScraperRunning && !isRealEstateScraperRunning) {
+          stopPolling();
         }
-        
-        const statusMessage = document.getElementById('statusMessage');
-        statusMessage.textContent = `Starting ${type} scraper...`;
-        statusMessage.className = 'bg-blue-100 text-blue-800'; // Tailwind classes
-        statusMessage.classList.remove('hidden');
-        
-        fetch('/start-scraper/', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRFToken': getCookie('csrftoken')
-            },
-            body: JSON.stringify({scraper_type: type})
-        })
-        .then(response => response.json())
-        .then(data => {
-            statusMessage.textContent = data.status || 'Scraper started successfully';
-            statusMessage.className = 'bg-green-100 text-green-800'; // Success color
-        })
-        .catch(error => {
-            statusMessage.textContent = 'Error starting scraper: ' + error;
-            statusMessage.className = 'bg-red-100 text-red-800'; // Error color
-            buttons.forEach(btn => btn.disabled = false);
-            
-            // Stop the specific scraper
-            if (type === 'lien') {
-                isLienScraperRunning = false;
-            } else {
-                isRealEstateScraperRunning = false;
-            }
-            
-            // Stop polling if no scrapers are running
-            if (!isLienScraperRunning && !isRealEstateScraperRunning) {
-                stopPolling();
-            }
-        });
+      });
     }
     
     function startPolling() {
-        console.log('Starting polling...');
+      console.log('Starting polling...');
+      
+      if (pollingInterval) {
+        clearInterval(pollingInterval);
+        pollingInterval = null;
+      }
+      
+      pollingInterval = setInterval(() => {
+        console.log('Polling for active scrapers...');
         
-        // Clear any existing interval first
-        if (pollingInterval) {
-            clearInterval(pollingInterval);
-            pollingInterval = null;
+        if (isLienScraperRunning) {
+          updateTable('lien');
+        }
+        if (isRealEstateScraperRunning) {
+          updateTable('realestate');
         }
         
-        // Start polling every 5 seconds
-        pollingInterval = setInterval(() => {
-            console.log('Polling for active scrapers...');
-            
-            // Only update tables for running scrapers
-            if (isLienScraperRunning) {
-                updateTable('lien');
-            }
-            if (isRealEstateScraperRunning) {
-                updateTable('realestate');
-            }
-            
-            // If both scrapers have stopped, stop polling
-            if (!isLienScraperRunning && !isRealEstateScraperRunning) {
-                console.log('No scrapers running, stopping polling...');
-                stopPolling();
-                const buttons = document.querySelectorAll('button');
-                buttons.forEach(btn => btn.disabled = false);
-            }
-        }, 5000); // Poll every 5 seconds
+        if (!isLienScraperRunning && !isRealEstateScraperRunning) {
+          console.log('No scrapers running, stopping polling...');
+          stopPolling();
+          const buttons = document.querySelectorAll('button');
+          buttons.forEach(btn => btn.disabled = false);
+        }
+      }, 10000);
     }
     
     function stopPolling() {
-        if (pollingInterval) {
-            clearInterval(pollingInterval);
-            pollingInterval = null;
-            console.log('Polling stopped');
-        }
+      if (pollingInterval) {
+        clearInterval(pollingInterval);
+        pollingInterval = null;
+        console.log('Polling stopped');
+      }
     }
     
     function updateTable(type) {
-        console.log(`Updating ${type} table...`);
-        
-        fetch(`/get-latest-data/?type=${type}`)
-        .then(response => response.json())
-        .then(data => {
-            updateTableUI(type, data);
-        })
-        .catch(error => {
-            console.error('Error fetching data:', error);
-        });
+      console.log(`Updating ${type} table...`);
+      
+      fetch(`/get-latest-data/?type=${type}`)
+      .then(response => response.json())
+      .then(data => {
+        updateTableUI(type, data);
+        updateCounter(`${type}LiveCount`, data.data?.length || 0);
+      })
+      .catch(error => {
+        console.error('Error fetching data:', error);
+      });
     }
     
     function updateTableUI(type, data) {
-        // Correct table body IDs based on your HTML structure
-        const tbodyId = type === 'lien' ? 'lienTable' : 'realestateTable';
-        const tbody = document.getElementById(tbodyId);
+      const tbodyId = type === 'lien' ? 'lienTable' : 'realestateTable';
+      const tbody = document.getElementById(tbodyId);
+      
+      if (!tbody) {
+        console.error(`tbody ${tbodyId} not found!`);
+        return;
+      }
+      
+      tbody.innerHTML = '';
+      
+      if (data.data && data.data.length > 0) {
+        console.log(`Got ${data.data.length} records for ${type}`);
         
-        // Check if tbody exists
-        if (!tbody) {
-            console.error(`tbody ${tbodyId} not found!`);
-            return;
-        }
-        
-        // Clear existing rows
-        tbody.innerHTML = '';
-        
-        // Add new rows only if we have data
-        if (data.data && data.data.length > 0) {
-            console.log(`Got ${data.data.length} records for ${type}`);
-            
-            data.data.forEach(item => {
-                const row = document.createElement('tr');
-                row.className = 'border-b'; // Add Tailwind class
-                
-                if (type === 'lien') {
-                    row.innerHTML = `
-                        <td class="p-3">${item.direct_party_debtor || ''}</td>
-                        <td class="p-3">${item.reverse_party_claimant || ''}</td>
-                        <td class="p-3">${item.address || ''}</td>
-                        <td class="p-3">${item.zipcode || ''}</td>
-                        <td class="p-3">${item.total_due || ''}</td>
-                        <td class="p-3">${item.county || ''}</td>
-                        <td class="p-3">${item.instrument || ''}</td>
-                        <td class="p-3">${item.date_filed || ''}</td>
-                        <td class="p-3">${item.book || ''}</td>
-                        <td class="p-3">${item.page || ''}</td>
-                    `;
-                } else {
-                    row.innerHTML = `
-                        <td class="p-3">${item.search_name || ''}</td>
-                        <td class="p-3">${item.entity_index || ''}</td>
-                        <td class="p-3">${item.doc_index || ''}</td>
-                        <td class="p-3">${item.final_url ? item.final_url.substring(0, 30) + '...' : ''}</td>
-                        <td class="p-3">${item.pdf_viewer ? item.pdf_viewer.substring(0, 30) + '...' : ''}</td>
-                    `;
-                }
-                
-                tbody.appendChild(row);
-            });
-        } else {
-            console.log(`No data received for ${type}`);
-            const colSpan = type === 'lien' ? 10 : 5;
-            tbody.innerHTML = `<tr class="border-b"><td class="p-3 text-center" colspan="${colSpan}">No data available</td></tr>`;
-        }
+        data.data.forEach(item => {
+          const row = document.createElement('tr');
+          row.className = 'table-row hover:bg-gray-700/20';
+          
+          if (type === 'lien') {
+            row.innerHTML = `
+              <td class="p-4">${item.direct_party_debtor || ''}</td>
+              <td class="p-4">${item.reverse_party_claimant || ''}</td>
+              <td class="p-4">${item.address || ''}</td>
+              <td class="p-4">${item.zipcode || ''}</td>
+              <td class="p-4 font-mono">${item.total_due || ''}</td>
+              <td class="p-4">${item.county || ''}</td>
+              <td class="p-4">${item.instrument || ''}</td>
+              <td class="p-4">${item.date_filed || ''}</td>
+              <td class="p-4">${item.book || ''}</td>
+              <td class="p-4">${item.page || ''}</td>
+            `;
+          } else {
+            row.innerHTML = `
+              <td class="p-4">${item.search_name || ''}</td>
+              <td class="p-4 text-center">${item.entity_index || ''}</td>
+              <td class="p-4 text-center">${item.doc_index || ''}</td>
+              <td class="p-4">
+                <a href="${item.final_url || '#'}" target="_blank" class="text-blue-400 hover:text-blue-300 transition-colors truncate block max-w-xs">
+                  ${item.final_url ? item.final_url.substring(0, 30) + '...' : ''}
+                </a>
+              </td>
+              <td class="p-4">
+                <a href="${item.pdf_viewer || '#'}" target="_blank" class="text-blue-400 hover:text-blue-300 transition-colors truncate block max-w-xs">
+                  ${item.pdf_viewer ? item.pdf_viewer.substring(0, 30) + '...' : ''}
+                </a>
+              </td>
+            `;
+          }
+          
+          tbody.appendChild(row);
+        });
+      } else {
+        const colSpan = type === 'lien' ? 10 : 5;
+        tbody.innerHTML = `<tr class="table-row"><td class="p-4 text-center text-gray-500" colspan="${colSpan}">No data available</td></tr>`;
+      }
     }
     
-    // Helper function to get CSRF token
-    function getCookie(name) {
-        let cookieValue = null;
-        if (document.cookie && document.cookie !== '') {
-            const cookies = document.cookie.split(';');
-            for (let i = 0; i < cookies.length; i++) {
-                const cookie = cookies[i].trim();
-                if (cookie.substring(0, name.length + 1) === (name + '=')) {
-                    cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
-                    break;
-                }
-            }
-        }
-        return cookieValue;
+    function updateCounter(elementId, count) {
+      const element = document.getElementById(elementId);
+      if (element) {
+        // Animate the counter
+        let current = parseInt(element.innerText);
+        const duration = 1000;
+        const steps = 30;
+        const increment = (count - current) / steps;
+        
+        let step = 0;
+        const timer = setInterval(() => {
+          step++;
+          current += increment;
+          element.innerText = Math.round(current);
+          
+          if (step >= steps) {
+            element.innerText = count;
+            clearInterval(timer);
+          }
+        }, duration / steps);
+      }
     }
-</script>
+    
+    function showStatus(message, type) {
+      const statusMessage = document.getElementById('statusMessage');
+      const statusText = document.getElementById('statusText');
+      const progressBar = statusMessage.querySelector('.progress-bar');
+      
+      statusText.textContent = message;
+      statusMessage.className = 'glass-card p-4 mb-8 text-center transition-all duration-500 opacity-100 flex items-center justify-center';
+      
+      // Set color based on type
+      if (type === 'green') {
+        statusMessage.classList.add('text-green-400');
+        progressBar.style.background = 'linear-gradient(90deg, #4ade80, #3b82f6)';
+      } else if (type === 'red') {
+        statusMessage.classList.add('text-red-400');
+        progressBar.style.background = 'linear-gradient(90deg, #ef4444, #f97316)';
+      } else {
+        statusMessage.classList.add('text-blue-400');
+        progressBar.style.background = 'linear-gradient(90deg, #3b82f6, #8b5cf6)';
+      }
+      
+      // Animate progress bar
+      progressBar.style.width = '100%';
+      
+      // Auto-hide success messages after 5 seconds
+      if (type === 'green') {
+        setTimeout(() => {
+          hideStatus();
+        }, 5000);
+      }
+    }
+    
+    function hideStatus() {
+      const statusMessage = document.getElementById('statusMessage');
+      statusMessage.classList.add('opacity-0');
+      setTimeout(() => {
+        statusMessage.classList.add('hidden');
+      }, 500);
+    }
+    
+    function getCookie(name) {
+      let cookieValue = null;
+      if (document.cookie && document.cookie !== '') {
+        const cookies = document.cookie.split(';');
+        for (let i = 0; i < cookies.length; i++) {
+          const cookie = cookies[i].trim();
+          if (cookie.substring(0, name.length + 1) === (name + '=')) {
+            cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+            break;
+          }
+        }
+      }
+      return cookieValue;
+    }
+  </script>
 </body>
 </html>

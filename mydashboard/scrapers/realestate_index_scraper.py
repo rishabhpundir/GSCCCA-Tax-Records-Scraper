@@ -13,6 +13,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from rich.console import Console
 import playwright.async_api as pw
+from datetime import datetime
 
 load_dotenv()
 console = Console()
@@ -70,6 +71,7 @@ class RealestateIndexScraper:
     async def login(self) -> bool:
         await self.page.goto("https://apps.gsccca.org/login.asp", wait_until="domcontentloaded", timeout=60000)
         await self.page.wait_for_timeout(self.time_sleep())
+        await self.check_and_handle_announcement()  
         await self.page.fill("input[name='txtUserID']", self.email)
         await self.page.fill("input[name='txtPassword']", self.password)
         try:
@@ -255,10 +257,23 @@ class RealestateIndexScraper:
             df = pd.DataFrame(self.results)
             df.drop_duplicates(subset=["pdf_viewer"], inplace=True)
             df.reset_index(drop=True, inplace=True)
-            df.to_excel(filename, index=False)
-            console.print(f"[green]Results saved -> {filename}[/green]")
+            
+            # Create Output directory if it doesn't exist
+            output_dir = Path("Output")
+            output_dir.mkdir(exist_ok=True)
+            
+            # Add timestamp to filename
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            final_filename = f"realestate_index_{ts}.xlsx"
+            final_path = output_dir / final_filename
+            
+            df.to_excel(final_path, index=False)
+            console.print(f"[green]Results saved -> {final_path}[/green]")
+            return final_path
         except Exception as e:
             console.print(f"[red]Failed to save Excel: {e}[/red]")
+            traceback.print_exc()
+            return None
 
     async def run(self):
         playwright = await pw.async_playwright().start()
@@ -296,6 +311,11 @@ class RealestateIndexScraper:
         await self.step3_fill_form_from_excel()
 
         console.print(f"[green]Final Results:[/green] {json.dumps(self.results, indent=2)}")
+        excel_path = self.save_results_to_excel()
+        if excel_path:
+            console.print(f"[green]Excel file created at: {excel_path}[/green]")
+        else:
+            console.print("[red]Failed to create Excel file[/red]")
 
         await browser.close()
         await playwright.stop()
