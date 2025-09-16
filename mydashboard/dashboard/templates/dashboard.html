@@ -1,0 +1,335 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Data Scraper Dashboard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    /* 3D Button Animation */
+    .scraper-btn {
+      perspective: 1000px;
+    }
+    .scraper-btn span {
+      display: inline-block;
+      transform: rotateX(0deg);
+      transition: transform 0.4s ease, box-shadow 0.4s ease;
+    }
+    .scraper-btn:hover span {
+      transform: rotateX(15deg) scale(1.05);
+      box-shadow: 0 10px 20px rgba(0,0,0,0.25);
+    }
+    /* Table hover glow */
+    table tbody tr:hover {
+      background-color: #f1f5f9;
+      transform: scale(1.01);
+      transition: all 0.2s ease-in-out;
+    }
+  </style>
+</head>
+<body class="bg-gradient-to-br from-gray-100 to-gray-200 min-h-screen font-sans">
+
+  <!-- Container -->
+  <div class="max-w-7xl mx-auto p-6">
+    <h1 class="text-4xl font-bold text-center text-gray-800 mb-8 drop-shadow-md">
+      Data Scraper Dashboard
+    </h1>
+
+    <!-- Status -->
+    <div id="statusMessage"
+         class="hidden text-center py-3 px-4 rounded-lg shadow-md mb-6 transition-all">
+    </div>
+
+    <!-- Buttons -->
+    <div class="flex justify-center gap-8 mb-10">
+      <button onclick="startScraper('lien')"
+              class="scraper-btn bg-green-500 text-white px-8 py-4 rounded-xl text-lg font-semibold shadow-md hover:bg-green-600 active:scale-95 transition-all">
+        <span>Start Lien Scraper</span>
+      </button>
+      <button onclick="startScraper('realestate')"
+              class="scraper-btn bg-blue-500 text-white px-8 py-4 rounded-xl text-lg font-semibold shadow-md hover:bg-blue-600 active:scale-95 transition-all">
+        <span>Start Real Estate Scraper</span>
+      </button>
+    </div>
+
+    <!-- Tables -->
+    <div class="space-y-12">
+      <!-- Lien Data -->
+      <div class="bg-white rounded-2xl shadow-lg p-6">
+        <h2 class="text-2xl font-semibold mb-4 border-b pb-2 text-gray-700">Lien Data</h2>
+        <div class="overflow-x-auto">
+          <table class="w-full border-collapse">
+            <thead class="bg-gray-100 text-gray-700">
+              <tr>
+                <th class="p-3 text-left">Direct Party</th>
+                <th class="p-3 text-left">Reverse Party</th>
+                <th class="p-3 text-left">Address</th>
+                <th class="p-3 text-left">Zipcode</th>
+                <th class="p-3 text-left">Total Due</th>
+                <th class="p-3 text-left">County</th>
+                <th class="p-3 text-left">Instrument</th>
+                <th class="p-3 text-left">Date Filed</th>
+                <th class="p-3 text-left">Book</th>
+                <th class="p-3 text-left">Page</th>
+              </tr>
+            </thead>
+            <tbody id="lienTable" class="text-sm text-gray-600">
+              {% for item in lien_data %}
+              <tr class="border-b">
+                <td class="p-3">{{ item.direct_party_debtor }}</td>
+                <td class="p-3">{{ item.reverse_party_claimant }}</td>
+                <td class="p-3">{{ item.address }}</td>
+                <td class="p-3">{{ item.zipcode }}</td>
+                <td class="p-3">{{ item.total_due }}</td>
+                <td class="p-3">{{ item.county }}</td>
+                <td class="p-3">{{ item.instrument }}</td>
+                <td class="p-3">{{ item.date_filed }}</td>
+                <td class="p-3">{{ item.book }}</td>
+                <td class="p-3">{{ item.page }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Real Estate Data -->
+      <div class="bg-white rounded-2xl shadow-lg p-6">
+        <h2 class="text-2xl font-semibold mb-4 border-b pb-2 text-gray-700">Real Estate Data</h2>
+        <div class="overflow-x-auto">
+          <table class="w-full border-collapse">
+            <thead class="bg-gray-100 text-gray-700">
+              <tr>
+                <th class="p-3 text-left">Search Name</th>
+                <th class="p-3 text-left">Entity Index</th>
+                <th class="p-3 text-left">Doc Index</th>
+                <th class="p-3 text-left">Final URL</th>
+                <th class="p-3 text-left">PDF Viewer</th>
+              </tr>
+            </thead>
+            <tbody id="realestateTable" class="text-sm text-gray-600">
+              {% for item in realestate_data %}
+              <tr class="border-b">
+                <td class="p-3">{{ item.search_name }}</td>
+                <td class="p-3">{{ item.entity_index }}</td>
+                <td class="p-3">{{ item.doc_index }}</td>
+                <td class="p-3">{{ item.final_url|truncatechars:30 }}</td>
+                <td class="p-3">{{ item.pdf_viewer|truncatechars:30 }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- JS -->
+<script>
+    let isLienScraperRunning = false;
+    let isRealEstateScraperRunning = false;
+    let pollingInterval = null;
+    let isInitialLoadDone = false;
+
+    // Page load hone par initial data load karein (but ONLY once)
+    document.addEventListener('DOMContentLoaded', function() {
+        console.log('Page loaded, loading initial data once...');
+        if (!isInitialLoadDone) {
+            // Wait for tables to be fully rendered
+            setTimeout(loadInitialData, 100);
+            isInitialLoadDone = true;
+        }
+    });
+
+    function loadInitialData() {
+        console.log('Loading initial data...');
+        fetch(`/get-latest-data/?type=lien`)
+            .then(response => response.json())
+            .then(data => updateTableUI('lien', data))
+            .catch(error => console.error('Error loading lien data:', error));
+        
+        fetch(`/get-latest-data/?type=realestate`)
+            .then(response => response.json())
+            .then(data => updateTableUI('realestate', data))
+            .catch(error => console.error('Error loading realestate data:', error));
+    }
+
+    function startScraper(type) {
+        console.log(`Starting ${type} scraper...`);
+        
+        const buttons = document.querySelectorAll('button');
+        buttons.forEach(btn => btn.disabled = true);
+        
+        // Set the specific scraper as running
+        if (type === 'lien') {
+            isLienScraperRunning = true;
+        } else {
+            isRealEstateScraperRunning = true;
+        }
+        
+        // Start polling only if any scraper is running
+        if (isLienScraperRunning || isRealEstateScraperRunning) {
+            startPolling();
+        }
+        
+        const statusMessage = document.getElementById('statusMessage');
+        statusMessage.textContent = `Starting ${type} scraper...`;
+        statusMessage.className = 'bg-blue-100 text-blue-800'; // Tailwind classes
+        statusMessage.classList.remove('hidden');
+        
+        fetch('/start-scraper/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCookie('csrftoken')
+            },
+            body: JSON.stringify({scraper_type: type})
+        })
+        .then(response => response.json())
+        .then(data => {
+            statusMessage.textContent = data.status || 'Scraper started successfully';
+            statusMessage.className = 'bg-green-100 text-green-800'; // Success color
+        })
+        .catch(error => {
+            statusMessage.textContent = 'Error starting scraper: ' + error;
+            statusMessage.className = 'bg-red-100 text-red-800'; // Error color
+            buttons.forEach(btn => btn.disabled = false);
+            
+            // Stop the specific scraper
+            if (type === 'lien') {
+                isLienScraperRunning = false;
+            } else {
+                isRealEstateScraperRunning = false;
+            }
+            
+            // Stop polling if no scrapers are running
+            if (!isLienScraperRunning && !isRealEstateScraperRunning) {
+                stopPolling();
+            }
+        });
+    }
+    
+    function startPolling() {
+        console.log('Starting polling...');
+        
+        // Clear any existing interval first
+        if (pollingInterval) {
+            clearInterval(pollingInterval);
+            pollingInterval = null;
+        }
+        
+        // Start polling every 5 seconds
+        pollingInterval = setInterval(() => {
+            console.log('Polling for active scrapers...');
+            
+            // Only update tables for running scrapers
+            if (isLienScraperRunning) {
+                updateTable('lien');
+            }
+            if (isRealEstateScraperRunning) {
+                updateTable('realestate');
+            }
+            
+            // If both scrapers have stopped, stop polling
+            if (!isLienScraperRunning && !isRealEstateScraperRunning) {
+                console.log('No scrapers running, stopping polling...');
+                stopPolling();
+                const buttons = document.querySelectorAll('button');
+                buttons.forEach(btn => btn.disabled = false);
+            }
+        }, 5000); // Poll every 5 seconds
+    }
+    
+    function stopPolling() {
+        if (pollingInterval) {
+            clearInterval(pollingInterval);
+            pollingInterval = null;
+            console.log('Polling stopped');
+        }
+    }
+    
+    function updateTable(type) {
+        console.log(`Updating ${type} table...`);
+        
+        fetch(`/get-latest-data/?type=${type}`)
+        .then(response => response.json())
+        .then(data => {
+            updateTableUI(type, data);
+        })
+        .catch(error => {
+            console.error('Error fetching data:', error);
+        });
+    }
+    
+    function updateTableUI(type, data) {
+        // Correct table body IDs based on your HTML structure
+        const tbodyId = type === 'lien' ? 'lienTable' : 'realestateTable';
+        const tbody = document.getElementById(tbodyId);
+        
+        // Check if tbody exists
+        if (!tbody) {
+            console.error(`tbody ${tbodyId} not found!`);
+            return;
+        }
+        
+        // Clear existing rows
+        tbody.innerHTML = '';
+        
+        // Add new rows only if we have data
+        if (data.data && data.data.length > 0) {
+            console.log(`Got ${data.data.length} records for ${type}`);
+            
+            data.data.forEach(item => {
+                const row = document.createElement('tr');
+                row.className = 'border-b'; // Add Tailwind class
+                
+                if (type === 'lien') {
+                    row.innerHTML = `
+                        <td class="p-3">${item.direct_party_debtor || ''}</td>
+                        <td class="p-3">${item.reverse_party_claimant || ''}</td>
+                        <td class="p-3">${item.address || ''}</td>
+                        <td class="p-3">${item.zipcode || ''}</td>
+                        <td class="p-3">${item.total_due || ''}</td>
+                        <td class="p-3">${item.county || ''}</td>
+                        <td class="p-3">${item.instrument || ''}</td>
+                        <td class="p-3">${item.date_filed || ''}</td>
+                        <td class="p-3">${item.book || ''}</td>
+                        <td class="p-3">${item.page || ''}</td>
+                    `;
+                } else {
+                    row.innerHTML = `
+                        <td class="p-3">${item.search_name || ''}</td>
+                        <td class="p-3">${item.entity_index || ''}</td>
+                        <td class="p-3">${item.doc_index || ''}</td>
+                        <td class="p-3">${item.final_url ? item.final_url.substring(0, 30) + '...' : ''}</td>
+                        <td class="p-3">${item.pdf_viewer ? item.pdf_viewer.substring(0, 30) + '...' : ''}</td>
+                    `;
+                }
+                
+                tbody.appendChild(row);
+            });
+        } else {
+            console.log(`No data received for ${type}`);
+            const colSpan = type === 'lien' ? 10 : 5;
+            tbody.innerHTML = `<tr class="border-b"><td class="p-3 text-center" colspan="${colSpan}">No data available</td></tr>`;
+        }
+    }
+    
+    // Helper function to get CSRF token
+    function getCookie(name) {
+        let cookieValue = null;
+        if (document.cookie && document.cookie !== '') {
+            const cookies = document.cookie.split(';');
+            for (let i = 0; i < cookies.length; i++) {
+                const cookie = cookies[i].trim();
+                if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                    cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                    break;
+                }
+            }
+        }
+        return cookieValue;
+    }
+</script>
+</body>
+</html>
