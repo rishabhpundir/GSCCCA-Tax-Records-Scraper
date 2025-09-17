@@ -4,12 +4,52 @@
 <head>
   <meta charset="UTF-8">
   <title>Data Scraper Dashboard | GSCCCA</title>
+  
+  <!-- Preconnect to CDNs for better performance -->
+  <link rel="preconnect" href="https://cdn.tailwindcss.com">
+  <link rel="preconnect" href="https://cdnjs.cloudflare.com/ajax/libs">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  
+  <!-- Prevent favicon 404 error -->
+  <link rel="icon" href="data:,">
+  
+  <!-- TailwindCSS with fallback -->
   <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    // Fallback if Tailwind fails to load
+    setTimeout(function() {
+      if (!window.tailwind) {
+        console.log('Tailwind CDN failed, loading backup...');
+        document.write('<script src="https://cdn.jsdelivr.net/npm/tailwindcss@3.4.0"><\/script>');
+      }
+    }, 3000);
+  </script>
+  
+  <!-- Three.js -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  
+  <!-- Font Awesome with local fallback -->
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
   <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+    /* Font Awesome fallback */
+    @font-face {
+      font-family: 'Font Awesome 6 Free';
+      font-style: normal;
+      font-weight: 900;
+      font-display: block;
+      src: url("{% static 'fonts/fa-solid-900.woff2' %}") format('woff2');
+    }
     
+    .fa-solid:before {
+      font-family: 'Font Awesome 6 Free';
+      font-weight: 900;
+    }
+  </style>
+  
+  <!-- Google Fonts -->
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  
+  <style>
     * {
       margin: 0;
       padding: 0;
@@ -266,7 +306,9 @@
                 <th class="p-4 text-left">Date Filed</th>
                 <th class="p-4 text-left">Book</th>
                 <th class="p-4 text-left">Page</th>
-                
+                <th class="p-4 text-left">Description</th>
+                <th class="p-4 text-left">PDF Document URL</th>
+                <th class="p-4 text-left">PDF File</th>
               </tr>
             </thead>
             <tbody id="lienTable" class="divide-y divide-gray-700/50">
@@ -282,6 +324,9 @@
                 <td class="p-4">{{ item.date_filed }}</td>
                 <td class="p-4">{{ item.book }}</td>
                 <td class="p-4">{{ item.page }}</td>
+                <td class="p-4">{{ item.description }}</td>
+                <td class="p-4">{{ item.pdf_document_url }}</td>
+                <td class="p-4">{{ item.pdf_file }}</td>
               </tr>
               {% endfor %}
             </tbody>
@@ -296,43 +341,135 @@
             <i class="fas fa-home text-blue-400 mr-3"></i>
             Real Estate Data
           </h2>
-          <span class="bg-blue-500/20 text-blue-400 px-3 py-1 rounded-full text-sm">
-            <span id="realestateLiveCount">{{ realestate_data|length }}</span> records
-          </span>
+          <div class="flex items-center gap-4">
+            <span class="bg-blue-500/20 text-blue-400 px-3 py-1 rounded-full text-sm">
+              <span id="realestateLiveCount">{{ realestate_data|length }}</span> records
+            </span>
+            <button onclick="toggleRealEstateView()" class="text-blue-400 hover:text-blue-300 transition-colors text-sm">
+              <i class="fas fa-exchange-alt mr-1"></i> Toggle View
+            </button>
+          </div>
         </div>
         
-        <div class="overflow-x-auto rounded-2xl">
-          <table class="w-full">
-            <thead>
-              <tr class="bg-gray-800/50">
-                <th class="p-4 text-left">Search Name</th>
-                <th class="p-4 text-left">Entity Index</th>
-                <th class="p-4 text-left">Doc Index</th>
-                <th class="p-4 text-left">Final URL</th>
-                <th class="p-4 text-left">PDF Viewer</th>
-              </tr>
-            </thead>
-            <tbody id="realestateTable" class="divide-y divide-gray-700/50">
-              {% for item in realestate_data %}
-              <tr class="table-row hover:bg-gray-700/20">
-                <td class="p-4">{{ item.search_name }}</td>
-                <td class="p-4 text-center">{{ item.entity_index }}</td>
-                <td class="p-4 text-center">{{ item.doc_index }}</td>
-                <td class="p-4">
-                  <a href="{{ item.final_url }}" target="_blank" class="text-blue-400 hover:text-blue-300 transition-colors truncate block max-w-xs">
-                    {{ item.final_url|truncatechars:30 }}
-                  </a>
-                </td>
-                <td class="p-4">
-                  <a href="{{ item.pdf_viewer }}" target="_blank" class="text-blue-400 hover:text-blue-300 transition-colors truncate block max-w-xs">
-                    {{ item.pdf_viewer|truncatechars:30 }}
-                  </a>
-                </td>
-              </tr>
-              {% endfor %}
-            </tbody>
-          </table>
+        <!-- Detailed View -->
+        <div id="realEstateDetailedView">
+          <div class="overflow-x-auto rounded-2xl">
+            <table class="w-full">
+              <thead>
+                <tr class="bg-gray-800/50">
+                  <th class="p-4 text-left">Search Name</th>
+                  <th class="p-4 text-left">Entity</th>
+                  <th class="p-4 text-left">Document</th>
+                  <th class="p-4 text-left">PDF Viewer</th>
+                  <th class="p-4 text-left">Real Estate PDF</th>
+                  {% comment %} <th class="p-4 text-left">Actions</th> {% endcomment %}
+                </tr>
+              </thead>
+              <tbody id="realestateTable" class="divide-y divide-gray-700/50">
+                {% for item in realestate_data %}
+                <tr class="table-row hover:bg-gray-700/20">
+                  <td class="p-4 font-medium">{{ item.search_name }}</td>
+                  <td class="p-4 text-center">
+                    <span class="bg-blue-500/20 text-blue-400 px-2 py-1 rounded text-xs">
+                      {{ item.entity_index }}
+                    </span>
+                  </td>
+                  <td class="p-4 text-center">
+                    <span class="bg-green-500/20 text-green-400 px-2 py-1 rounded text-xs">
+                      {{ item.doc_index }}
+                    </span>
+                  </td>
+                  <td class="p-4">
+                    {% if item.pdf_viewer %}
+                    <a href="{{ item.pdf_viewer }}" target="_blank" 
+                       class="text-blue-400 hover:text-blue-300 transition-colors flex items-center group">
+                      <i class="fas fa-external-link-alt mr-2 text-xs"></i>
+                      <span class="truncate max-w-xs group-hover:underline">
+                        View PDF
+                      </span>
+                    </a>
+                    {% else %}
+                    <span class="text-gray-500 text-sm">Not available</span>
+                    {% endif %}
+                  </td>
+                  <td class="p-4">
+                    {% if item.realestate_pdf %}
+                    <a href="{{ item.realestate_pdf }}" target="_blank" 
+                       class="text-purple-400 hover:text-purple-300 transition-colors flex items-center group">
+                      <i class="fas fa-file-pdf mr-2 text-xs"></i>
+                      <span class="truncate max-w-xs group-hover:underline">
+                        Open Document
+                      </span>
+                    </a>
+                    {% else %}
+                    <span class="text-gray-500 text-sm">Not available</span>
+                    {% endif %}
+                  </td>
+                  <td class="p-4">
+                    <div class="flex space-x-2">
+                      {% if item.pdf_viewer %}
+                      <button onclick="openLink('{{ item.pdf_viewer }}')" 
+                              class="text-blue-400 hover:text-blue-300 transition-colors" title="Open PDF Viewer">
+                        <i class="fas fa-eye"></i>
+                      </button>
+                      {% endif %}
+                      {% if item.realestate_pdf %}
+                      <button onclick="openLink('{{ item.realestate_pdf }}')" 
+                              class="text-purple-400 hover:text-purple-300 transition-colors" title="Open PDF">
+                        <i class="fas fa-file-download"></i>
+                      </button>
+                      {% endif %}
+                    </div>
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
         </div>
+
+        <!-- Compact View (Hidden by default) -->
+        <div id="realEstateCompactView" class="hidden">
+          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {% for item in realestate_data %}
+            <div class="glass-card p-4 hover:bg-gray-700/20 transition-colors cursor-pointer"
+                 onclick="openLink('{% if item.pdf_viewer %}{{ item.pdf_viewer }}{% else %}{{ item.realestate_pdf }}{% endif %}')">
+              <div class="flex items-start justify-between mb-3">
+                <h3 class="font-semibold text-blue-400 truncate">{{ item.search_name }}</h3>
+                <div class="flex items-center space-x-2">
+                  <span class="bg-blue-500/20 text-blue-400 px-2 py-1 rounded text-xs">
+                    E:{{ item.entity_index }}
+                  </span>
+                  <span class="bg-green-500/20 text-green-400 px-2 py-1 rounded text-xs">
+                    D:{{ item.doc_index }}
+                  </span>
+                </div>
+              </div>
+              
+              <div class="space-y-2 text-sm">
+                <div class="flex items-center text-gray-400">
+                  <i class="fas fa-external-link-alt mr-2 text-xs"></i>
+                  <span class="truncate">
+                    {% if item.pdf_viewer %}
+                    PDF Viewer
+                    {% else %}
+                    Document Link
+                    {% endif %}
+                  </span>
+                </div>
+              </div>
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+
+        {% if not realestate_data %}
+        <div class="text-center py-12 text-gray-500">
+          <i class="fas fa-inbox text-4xl mb-4"></i>
+          <p>No real estate data available</p>
+          <p class="text-sm mt-2">Run the Real Estate Scraper to collect data</p>
+        </div>
+        {% endif %}
       </div>
     </div>
 
@@ -434,7 +571,7 @@
       fetch(`/get-latest-data/?type=realestate`)
         .then(response => response.json())
         .then(data => {
-          updateTableUI('realestate', data);
+          updateRealEstateTableUI(data);
           updateCounter('realestateLiveCount', data.data?.length || 0);
           hideStatus();
         })
@@ -528,8 +665,13 @@
       fetch(`/get-latest-data/?type=${type}`)
       .then(response => response.json())
       .then(data => {
-        updateTableUI(type, data);
-        updateCounter(`${type}LiveCount`, data.data?.length || 0);
+        if (type === 'lien') {
+          updateTableUI(type, data);
+          updateCounter('lienLiveCount', data.data?.length || 0);
+        } else {
+          updateRealEstateTableUI(data);
+          updateCounter('realestateLiveCount', data.data?.length || 0);
+        }
       })
       .catch(error => {
         console.error('Error fetching data:', error);
@@ -566,22 +708,10 @@
               <td class="p-4">${item.date_filed || ''}</td>
               <td class="p-4">${item.book || ''}</td>
               <td class="p-4">${item.page || ''}</td>
-            `;
-          } else {
-            row.innerHTML = `
-              <td class="p-4">${item.search_name || ''}</td>
-              <td class="p-4 text-center">${item.entity_index || ''}</td>
-              <td class="p-4 text-center">${item.doc_index || ''}</td>
-              <td class="p-4">
-                <a href="${item.final_url || '#'}" target="_blank" class="text-blue-400 hover:text-blue-300 transition-colors truncate block max-w-xs">
-                  ${item.final_url ? item.final_url.substring(0, 30) + '...' : ''}
-                </a>
-              </td>
-              <td class="p-4">
-                <a href="${item.pdf_viewer || '#'}" target="_blank" class="text-blue-400 hover:text-blue-300 transition-colors truncate block max-w-xs">
-                  ${item.pdf_viewer ? item.pdf_viewer.substring(0, 30) + '...' : ''}
-                </a>
-              </td>
+              <td class="p-4">${item.description || ''}</td>
+              <td class="p-4">${item.pdf_document_url || ''}</td>
+              <td class="p-4">${item.pdf_file || ''}</td>
+
             `;
           }
           
@@ -590,6 +720,78 @@
       } else {
         const colSpan = type === 'lien' ? 10 : 5;
         tbody.innerHTML = `<tr class="table-row"><td class="p-4 text-center text-gray-500" colspan="${colSpan}">No data available</td></tr>`;
+      }
+    }
+    
+    function updateRealEstateTableUI(data) {
+      const tbody = document.getElementById('realestateTable');
+      if (!tbody) return;
+      
+      tbody.innerHTML = '';
+      
+      if (data.data && data.data.length > 0) {
+        data.data.forEach(item => {
+          const row = document.createElement('tr');
+          row.className = 'table-row hover:bg-gray-700/20';
+          
+          row.innerHTML = `
+            <td class="p-4 font-medium">${item.search_name || ''}</td>
+            <td class="p-4 text-center">
+              <span class="bg-blue-500/20 text-blue-400 px-2 py-1 rounded text-xs">
+                ${item.entity_index || ''}
+              </span>
+            </td>
+            <td class="p-4 text-center">
+              <span class="bg-green-500/20 text-green-400 px-2 py-1 rounded text-xs">
+                ${item.doc_index || ''}
+              </span>
+            </td>
+            <td class="p-4">
+              ${item.pdf_viewer ? `
+                <a href="${item.pdf_viewer}" target="_blank" 
+                   class="text-blue-400 hover:text-blue-300 transition-colors flex items-center group">
+                  <i class="fas fa-external-link-alt mr-2 text-xs"></i>
+                  <span class="truncate max-w-xs group-hover:underline">View PDF</span>
+                </a>
+              ` : '<span class="text-gray-500 text-sm">Not available</span>'}
+            </td>
+            {% comment %} <td class="p-4">
+              ${item.realestate_pdf ? `
+                <a href="${item.realestate_pdf}" target="_blank" 
+                   class="text-purple-400 hover:text-purple-300 transition-colors flex items-center group">
+                  <i class="fas fa-file-pdf mr-2 text-xs"></i>
+                  <span class="truncate max-w-xs group-hover:underline">Open Document</span>
+                </a>
+              ` : '<span class="text-gray-500 text-sm">Not available</span>'}
+            </td> {% endcomment %}
+            <td class="p-4">
+              <div class="flex space-x-2">
+                ${item.pdf_viewer ? `
+                  <button onclick="openLink('${item.pdf_viewer}')" 
+                          class="text-blue-400 hover:text-blue-300 transition-colors" title="Open PDF Viewer">
+                    <i class="fas fa-eye"></i>
+                  </button>
+                ` : ''}
+                ${item.realestate_pdf ? `
+                  <button onclick="openLink('${item.realestate_pdf}')" 
+                          class="text-purple-400 hover:text-purple-300 transition-colors" title="Open PDF">
+                    <i class="fas fa-file-download"></i>
+                  </button>
+                ` : ''}
+              </div>
+            </td>
+          `;
+          
+          tbody.appendChild(row);
+        });
+      } else {
+        tbody.innerHTML = `
+          <tr class="table-row">
+            <td colspan="6" class="p-4 text-center text-gray-500">
+              No real estate data available
+            </td>
+          </tr>
+        `;
       }
     }
     
@@ -639,11 +841,11 @@
       // Animate progress bar
       progressBar.style.width = '100%';
       
-      // Auto-hide success messages after 5 seconds
+      // Auto-hide success messages after 10 seconds
       if (type === 'green') {
         setTimeout(() => {
           hideStatus();
-        }, 5000);
+        }, 10000);
       }
     }
     
@@ -652,7 +854,28 @@
       statusMessage.classList.add('opacity-0');
       setTimeout(() => {
         statusMessage.classList.add('hidden');
-      }, 500);
+      }, 800);
+    }
+    
+    // Toggle between detailed and compact views
+    function toggleRealEstateView() {
+      const detailedView = document.getElementById('realEstateDetailedView');
+      const compactView = document.getElementById('realEstateCompactView');
+      
+      if (detailedView.classList.contains('hidden')) {
+        detailedView.classList.remove('hidden');
+        compactView.classList.add('hidden');
+      } else {
+        detailedView.classList.add('hidden');
+        compactView.classList.remove('hidden');
+      }
+    }
+    
+    // Open link in new tab
+    function openLink(url) {
+      if (url && url !== 'N/A') {
+        window.open(url, '_blank');
+      }
     }
     
     function getCookie(name) {

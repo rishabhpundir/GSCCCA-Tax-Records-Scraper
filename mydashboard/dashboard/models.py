@@ -24,9 +24,8 @@ class RealEstateData(models.Model):
     search_name = models.CharField(max_length=255)
     entity_index = models.IntegerField()
     doc_index = models.IntegerField()
-    final_url = models.URLField()
-    pdf_viewer = models.URLField()
-    screenshot = models.CharField(max_length=255, blank=True, null=True)
+    pdf_viewer = models.TextField(db_column='PDF_viewer', blank=True, null=True)  
+    realestate_pdf = models.TextField(db_column='RealEstate_PDF', blank=True, null=True) 
     created_at = models.DateTimeField(auto_now_add=True)
     
     def __str__(self):

@@ -118,6 +118,19 @@ class GSCCCAScraper:
 
         print("[LOGIN] Filling password...")
         await self.page.fill("input[name='txtPassword']", password)
+        await self.page.wait_for_timeout(2000) 
+
+        print("[LOGIN] Checking 'Remember login details' checkbox if not already checked...")
+        checkbox = await self.page.query_selector("input[type='checkbox'][name='permanent']")
+        if checkbox:
+            is_checked = await checkbox.is_checked()
+            if not is_checked:
+                await checkbox.click()
+                print("[LOGIN] Checkbox clicked.")
+            else:
+                print("[LOGIN] Checkbox already checked.")
+        else:
+            print("[LOGIN] Checkbox not found on the page.")
 
         try:
             print("[LOGIN] Clicking login button...")
