@@ -11,6 +11,10 @@ from datetime import datetime
 import asyncio
 from dashboard.models import LienData, RealEstateData
 import traceback
+import logging
+
+# ------------------ LOGGER SETUP -------------------
+logger = logging.getLogger(__name__)
 
 # Add this base directory path
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -18,6 +22,13 @@ SCRAPERS_DIR = BASE_DIR / "scrapers"
 OUTPUT_DIR = SCRAPERS_DIR / "Output"
 DOWNLOADS_DIR = SCRAPERS_DIR / "downloads"
 
+
+
+def my_view(request):
+    logger.info("User opened dashboard view")
+    logger.debug("This is a debug message for developers")
+    logger.error("Something went wrong!")
+    
 def dashboard(request):
     lien_data = LienData.objects.all().order_by('-created_at')[:10]
     realestate_data = RealEstateData.objects.all().order_by('-created_at')[:10]
@@ -58,7 +69,7 @@ def get_latest_data(request):
 def run_lien_scraper_and_save():
     """Run lien scraper and save results to database"""
     try:
-        print("Starting lien scraper...")
+        logger.info("Starting lien scraper...")
         
         # Import the scraper module
         from scrapers.lien_index_scraper import GSCCCAScraper
@@ -75,12 +86,12 @@ def run_lien_scraper_and_save():
             latest_file = find_latest_excel_file(SCRAPERS_DIR, "LienResults")
             
         if latest_file:
-            print(f"Found lien Excel file: {latest_file}")
+            logger.info(f"Found lien Excel file: {latest_file}")
             
             # Read and save to database
             df = pd.read_excel(latest_file)
-            print(f"Excel file columns: {list(df.columns)}")
-            print(f"Number of rows: {len(df)}")
+            logger.debug(f"Excel file columns: {list(df.columns)}")
+            logger.info(f"Number of rows: {len(df)}")
             
             saved_count = 0
             for index, row in df.iterrows():
@@ -120,29 +131,29 @@ def run_lien_scraper_and_save():
                     
                     if created:
                         saved_count += 1
-                        print(f"Saved record {index + 1}: {get_field_value('Direct Party (Debtor)')}")
+                        logger.debug(f"Saved record {index + 1}: {get_field_value('Direct Party (Debtor)')}")
                         
                 except Exception as e:
-                    print(f"Error saving row {index + 1}: {e}")
-                    print(f"Problematic row data: {dict(row)}")
+                    logger.error(f"Error saving row {index + 1}: {e}")
+                    logger.debug(f"Problematic row data: {dict(row)}")
                     traceback.print_exc()
                     
-            print(f"Successfully saved {saved_count} out of {len(df)} lien records to database")
+            logger.info(f"Successfully saved {saved_count} out of {len(df)} lien records to database")
         else:
-            print("No lien Excel file found")
+            logger.warning("No lien Excel file found")
             # Check what files exist in the correct locations
-            print("Files in Output directory:", list(OUTPUT_DIR.glob("*")) if OUTPUT_DIR.exists() else "Output directory doesn't exist")
-            print("Files in downloads directory:", list(DOWNLOADS_DIR.glob("*")) if DOWNLOADS_DIR.exists() else "Downloads directory doesn't exist")
-            print("Files in scrapers directory:", list(SCRAPERS_DIR.glob("LienResults*")))
-            
+            logger.info("Files in Output directory: %s", list(OUTPUT_DIR.glob("*")) if OUTPUT_DIR.exists() else "Output directory doesn't exist")
+            logger.info("Files in downloads directory: %s", list(DOWNLOADS_DIR.glob("*")) if DOWNLOADS_DIR.exists() else "Downloads directory doesn't exist")
+            logger.info("Files in scrapers directory: %s", list(SCRAPERS_DIR.glob("LienResults*")))
+
     except Exception as e:
-        print(f"Error running lien scraper: {e}")
+        logger.error(f"Error running lien scraper: {e}")
         traceback.print_exc()
 
 def run_realestate_scraper_and_save():
     """Run real estate scraper and save results to database"""
     try:
-        print("Starting real estate scraper...")
+        logger.info("Starting real estate scraper...")
         
         # Import the scraper module
         from scrapers.realestate_index_scraper import RealestateIndexScraper
@@ -153,7 +164,7 @@ def run_realestate_scraper_and_save():
         
         # Check if we have results but no file was saved
         if hasattr(scraper, 'results') and scraper.results:
-            print(f"Found {len(scraper.results)} results in memory, saving directly to database")
+            logger.info(f"Found {len(scraper.results)} results in memory, saving directly to database")
             
             saved_count = 0
             for result in scraper.results:
@@ -172,14 +183,14 @@ def run_realestate_scraper_and_save():
                     
                     if created:
                         saved_count += 1
-                        print(f"Saved real estate record: {result.get('search_name', '')}")
+                        logger.info(f"Saved real estate record: {result.get('search_name', '')}")
                         
                 except Exception as e:
-                    print(f"Error saving real estate result: {e}")
-                    print(f"Problematic result: {result}")
+                    logger.error(f"Error saving real estate result: {e}")
+                    logger.debug(f"Problematic result: {result}")
                     traceback.print_exc()
                     
-            print(f"Saved {saved_count} real estate records directly from memory")
+            logger.info(f"Saved {saved_count} real estate records directly from memory")
             return
         
         # File-based logic as fallback
@@ -197,9 +208,9 @@ def run_realestate_scraper_and_save():
                             latest_file = latest_candidate
         
         if latest_file:
-            print(f"Found real estate Excel file: {latest_file}")
+            logger.info(f"Found real estate Excel file: {latest_file}")
             df = pd.read_excel(latest_file)
-            print(f"Excel file columns: {list(df.columns)}")
+            logger.info(f"Excel file columns: {list(df.columns)}")
             
             saved_count = 0
             for _, row in df.iterrows():
@@ -220,15 +231,15 @@ def run_realestate_scraper_and_save():
                         saved_count += 1
                         
                 except Exception as e:
-                    print(f"Error saving row: {e}")
+                    logger.error(f"Error saving row: {e}")
                     traceback.print_exc()
-                    
-            print(f"Saved {saved_count} real estate records from file")
+
+            logger.info(f"Saved {saved_count} real estate records from file")
         else:
-            print("No real estate Excel file found")
-            
+            logger.warning("No real estate Excel file found")
+
     except Exception as e:
-        print(f"Error running real estate scraper: {e}")
+        logger.error(f"Error running real estate scraper: {e}")
         traceback.print_exc()
         
 def find_latest_excel_file(directory, filename_prefix):
@@ -243,5 +254,5 @@ def find_latest_excel_file(directory, filename_prefix):
         # Return the most recently modified file
         return max(excel_files, key=os.path.getmtime)
     except Exception as e:
-        print(f"Error finding Excel file: {e}")
+        logger.error(f"Error finding Excel file: {e}")
         return None
