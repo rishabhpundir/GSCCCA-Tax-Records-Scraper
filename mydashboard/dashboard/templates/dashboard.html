@@ -248,35 +248,53 @@
     </div>
 
     <!-- Control Panel -->
-    <div class="glass-card p-8 mb-12 fade-in">
-      <h2 class="text-2xl font-semibold mb-6 text-center flex items-center justify-center">
-        <i class="fas fa-play-circle mr-3 text-blue-400"></i>
-        Scraper Control Panel
-      </h2>
-      
-      <div class="flex flex-col md:flex-row justify-center gap-6">
-        <button onclick="startScraper('lien')" class="scraper-btn group">
-          <div class="bg-gradient-to-br from-green-500 to-green-600 px-8 py-4 rounded-xl text-lg font-semibold text-white flex items-center justify-center">
-            <i class="fas fa-play mr-3 transform group-hover:scale-110 transition-transform"></i>
-            <span>Start Lien Scraper</span>
-          </div>
-        </button>
-        
-        <button onclick="startScraper('realestate')" class="scraper-btn group">
-          <div class="bg-gradient-to-br from-blue-500 to-blue-600 px-8 py-4 rounded-xl text-lg font-semibold text-white flex items-center justify-center">
-            <i class="fas fa-play mr-3 transform group-hover:scale-110 transition-transform"></i>
-            <span>Start Real Estate Scraper</span>
-          </div>
-        </button>
+ <!-- Control Panel mein yeh add karein existing buttons ke baad -->
+<div class="glass-card p-8 mb-12 fade-in">
+  <h2 class="text-2xl font-semibold mb-6 text-center flex items-center justify-center">
+    <i class="fas fa-play-circle mr-3 text-blue-400"></i>
+    Scraper Control Panel
+  </h2>
+  
+  <div class="flex flex-col md:flex-row justify-center gap-6">
+    <button onclick="startScraper('lien')" class="scraper-btn group">
+      <div class="bg-gradient-to-br from-green-500 to-green-600 px-8 py-4 rounded-xl text-lg font-semibold text-white flex items-center justify-center">
+        <i class="fas fa-play mr-3 transform group-hover:scale-110 transition-transform"></i>
+        <span>Start Lien Scraper</span>
       </div>
-      
-      <div class="mt-6 flex justify-center">
-        <button onclick="loadInitialData()" class="text-sm text-gray-400 hover:text-white transition-colors flex items-center">
-          <i class="fas fa-sync-alt mr-2"></i>
-          Refresh Data
-        </button>
+    </button>
+    
+    <button onclick="startScraper('realestate')" class="scraper-btn group">
+      <div class="bg-gradient-to-br from-blue-500 to-blue-600 px-8 py-4 rounded-xl text-lg font-semibold text-white flex items-center justify-center">
+        <i class="fas fa-play mr-3 transform group-hover:scale-110 transition-transform"></i>
+        <span>Start Real Estate Scraper</span>
       </div>
-    </div>
+    </button>
+  </div>
+  
+  <!-- Naye Excel Download Buttons -->
+  <div class="flex flex-col md:flex-row justify-center gap-4 mt-6">
+    <button onclick="downloadAllLienExcel()" class="scraper-btn group">
+      <div class="bg-gradient-to-br from-green-400 to-green-500 px-6 py-3 rounded-xl text-md font-semibold text-white flex items-center justify-center">
+        <i class="fas fa-file-excel mr-3 transform group-hover:scale-110 transition-transform"></i>
+        <span>Download All Lien Excel</span>
+      </div>
+    </button>
+    
+    <button onclick="downloadAllRealEstateExcel()" class="scraper-btn group">
+      <div class="bg-gradient-to-br from-blue-400 to-blue-500 px-6 py-3 rounded-xl text-md font-semibold text-white flex items-center justify-center">
+        <i class="fas fa-file-excel mr-3 transform group-hover:scale-110 transition-transform"></i>
+        <span>Download All Real Estate Excel</span>
+      </div>
+    </button>
+  </div>
+  
+  <div class="mt-6 flex justify-center">
+    <button onclick="loadInitialData()" class="text-sm text-gray-400 hover:text-white transition-colors flex items-center">
+      <i class="fas fa-sync-alt mr-2"></i>
+      Refresh Data
+    </button>
+  </div>
+</div>
 
     <!-- Data Tables -->
     <div class="space-y-8">
@@ -295,41 +313,62 @@
         <div class="overflow-x-auto rounded-2xl">
           <table class="w-full">
             <thead>
-              <tr class="bg-gray-800/50">
-                <th class="p-4 text-left">Direct Party</th>
-                <th class="p-4 text-left">Reverse Party</th>
-                <th class="p-4 text-left">Address</th>
-                <th class="p-4 text-left">Zipcode</th>
-                <th class="p-4 text-left">Total Due</th>
-                <th class="p-4 text-left">County</th>
-                <th class="p-4 text-left">Instrument</th>
-                <th class="p-4 text-left">Date Filed</th>
-                <th class="p-4 text-left">Book</th>
-                <th class="p-4 text-left">Page</th>
-                <th class="p-4 text-left">Description</th>
-                <th class="p-4 text-left">PDF Document URL</th>
-                <th class="p-4 text-left">PDF File</th>
-              </tr>
-            </thead>
-            <tbody id="lienTable" class="divide-y divide-gray-700/50">
-              {% for item in lien_data %}
-              <tr class="table-row hover:bg-gray-700/20">
-                <td class="p-4">{{ item.direct_party_debtor }}</td>
-                <td class="p-4">{{ item.reverse_party_claimant }}</td>
-                <td class="p-4">{{ item.address }}</td>
-                <td class="p-4">{{ item.zipcode }}</td>
-                <td class="p-4 font-mono">{{ item.total_due }}</td>
-                <td class="p-4">{{ item.county }}</td>
-                <td class="p-4">{{ item.instrument }}</td>
-                <td class="p-4">{{ item.date_filed }}</td>
-                <td class="p-4">{{ item.book }}</td>
-                <td class="p-4">{{ item.page }}</td>
-                <td class="p-4">{{ item.description }}</td>
-                <td class="p-4">{{ item.pdf_document_url }}</td>
-                <td class="p-4">{{ item.pdf_file }}</td>
-              </tr>
-              {% endfor %}
-            </tbody>
+                <tr class="bg-gray-800/50">
+                  <th class="p-4 text-left">Direct Party</th>
+                  <th class="p-4 text-left">Address</th>
+                  <th class="p-4 text-left">Zipcode</th>
+                  <th class="p-4 text-left">Total Due</th>
+                  <th class="p-4 text-left">County</th>
+                  <th class="p-4 text-left">Instrument</th>
+                  <th class="p-4 text-left">Book</th>
+                  <th class="p-4 text-left">Page</th>
+                  <!-- URL ki jagah View PDF -->
+                  <th class="p-4 text-left">View PDF</th>
+                  <th class="p-4 text-left">Lien Excel</th>
+                </tr>
+              </thead>
+              <tbody id="lienTable" class="divide-y divide-gray-700/50">
+                {% for item in lien_data %}
+                <tr class="table-row hover:bg-gray-700/20">
+                  <td class="p-4">{{ item.direct_party_debtor }}</td>
+                  <td class="p-4">{{ item.address }}</td>
+                  <td class="p-4">{{ item.zipcode }}</td>
+                  <td class="p-4 font-mono">{{ item.total_due }}</td>
+                  <td class="p-4">{{ item.county }}</td>
+                  <td class="p-4">{{ item.instrument }}</td>
+                  <td class="p-4">{{ item.book }}</td>
+                  <td class="p-4">{{ item.page }}</td>
+                  
+                  <!-- URL ki jagah View PDF button -->
+                  <td class="p-4">
+                    {% if item.pdf_document_url %}
+                    <a href="{{ item.pdf_document_url }}" target="_blank" 
+                      class="text-blue-400 hover:text-blue-300 transition-colors flex items-center group"
+                      title="View PDF Document">
+                      <i class="fas fa-external-link-alt mr-2 text-xs"></i>
+                      <span class="group-hover:underline">View PDF</span>
+                    </a>
+                    {% else %}
+                    <span class="text-gray-500 text-sm">Not available</span>
+                    {% endif %}
+                  </td>
+                  
+                  <!-- Excel Download column (existing) -->
+                  <td class="p-4">
+                    {% if item.pdf_document_url %}
+                    <button onclick="downloadLienExcel('{{ item.pdf_document_url }}')" 
+                            class="text-green-400 hover:text-green-300 transition-colors flex items-center group"
+                            title="Download Lien Excel">
+                      <i class="fas fa-file-excel mr-2 text-xs"></i>
+                      <span class="group-hover:underline">Excel</span>
+                    </button>
+                    {% else %}
+                    <span class="text-gray-500 text-sm">N/A</span>
+                    {% endif %}
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
           </table>
         </div>
       </div>
@@ -360,66 +399,55 @@
                   <th class="p-4 text-left">Search Name</th>
                   <th class="p-4 text-left">Entity</th>
                   <th class="p-4 text-left">Document</th>
-                  <th class="p-4 text-left">PDF Viewer</th>
                   <th class="p-4 text-left">Real Estate PDF</th>
-                  {% comment %} <th class="p-4 text-left">Actions</th> {% endcomment %}
+                  
+                  
+                  <!-- Naya column add karein -->
+                  <th class="p-4 text-left">Real Estate Excel</th>
                 </tr>
               </thead>
+              <!-- Real Estate Data Table -->
               <tbody id="realestateTable" class="divide-y divide-gray-700/50">
                 {% for item in realestate_data %}
                 <tr class="table-row hover:bg-gray-700/20">
-                  <td class="p-4 font-medium">{{ item.search_name }}</td>
+                  <td class="p-4 font-medium">{{ item.search_name|default:"Not available" }}</td>
                   <td class="p-4 text-center">
                     <span class="bg-blue-500/20 text-blue-400 px-2 py-1 rounded text-xs">
-                      {{ item.entity_index }}
+                      {{ item.entity_index|default:"0" }}
                     </span>
                   </td>
                   <td class="p-4 text-center">
                     <span class="bg-green-500/20 text-green-400 px-2 py-1 rounded text-xs">
-                      {{ item.doc_index }}
+                      {{ item.doc_index|default:"0" }}
                     </span>
                   </td>
+                  
+                  <!-- Real Estate PDF - Improved logic -->
                   <td class="p-4">
-                    {% if item.pdf_viewer %}
-                    <a href="{{ item.pdf_viewer }}" target="_blank" 
-                       class="text-blue-400 hover:text-blue-300 transition-colors flex items-center group">
-                      <i class="fas fa-external-link-alt mr-2 text-xs"></i>
-                      <span class="truncate max-w-xs group-hover:underline">
-                        View PDF
-                      </span>
-                    </a>
-                    {% else %}
-                    <span class="text-gray-500 text-sm">Not available</span>
-                    {% endif %}
-                  </td>
-                  <td class="p-4">
-                    {% if item.realestate_pdf %}
+                    {% if item.realestate_pdf and item.realestate_pdf != "Not available" and item.realestate_pdf != "N/A" %}
                     <a href="{{ item.realestate_pdf }}" target="_blank" 
-                       class="text-purple-400 hover:text-purple-300 transition-colors flex items-center group">
+                      class="text-purple-400 hover:text-purple-300 transition-colors flex items-center group"
+                      title="View Real Estate PDF">
                       <i class="fas fa-file-pdf mr-2 text-xs"></i>
-                      <span class="truncate max-w-xs group-hover:underline">
-                        Open Document
-                      </span>
+                      <span class="truncate max-w-xs group-hover:underline">View PDF</span>
                     </a>
                     {% else %}
                     <span class="text-gray-500 text-sm">Not available</span>
                     {% endif %}
                   </td>
+                  
+                  <!-- Real Estate Excel Download - Improved logic -->
                   <td class="p-4">
-                    <div class="flex space-x-2">
-                      {% if item.pdf_viewer %}
-                      <button onclick="openLink('{{ item.pdf_viewer }}')" 
-                              class="text-blue-400 hover:text-blue-300 transition-colors" title="Open PDF Viewer">
-                        <i class="fas fa-eye"></i>
-                      </button>
-                      {% endif %}
-                      {% if item.realestate_pdf %}
-                      <button onclick="openLink('{{ item.realestate_pdf }}')" 
-                              class="text-purple-400 hover:text-purple-300 transition-colors" title="Open PDF">
-                        <i class="fas fa-file-download"></i>
-                      </button>
-                      {% endif %}
-                    </div>
+                    {% if item.search_name %}
+                    <button onclick="downloadRealEstateExcel('{{ item.search_name }}')" 
+                            class="text-blue-400 hover:text-blue-300 transition-colors flex items-center group"
+                            title="Download Real Estate Excel">
+                      <i class="fas fa-file-excel mr-2 text-xs"></i>
+                      <span class="group-hover:underline">Excel</span>
+                    </button>
+                    {% else %}
+                    <span class="text-gray-500 text-sm">N/A</span>
+                    {% endif %}
                   </td>
                 </tr>
                 {% endfor %}
@@ -446,7 +474,7 @@
                 </div>
               </div>
               
-              <div class="space-y-2 text-sm">
+              {% comment %} <div class="space-y-2 text-sm">
                 <div class="flex items-center text-gray-400">
                   <i class="fas fa-external-link-alt mr-2 text-xs"></i>
                   <span class="truncate">
@@ -457,7 +485,7 @@
                     {% endif %}
                   </span>
                 </div>
-              </div>
+              </div> {% endcomment %}
             </div>
             {% endfor %}
           </div>
@@ -678,122 +706,130 @@
       });
     }
     
-    function updateTableUI(type, data) {
+  function updateTableUI(type, data) {
       const tbodyId = type === 'lien' ? 'lienTable' : 'realestateTable';
       const tbody = document.getElementById(tbodyId);
       
       if (!tbody) {
-        console.error(`tbody ${tbodyId} not found!`);
-        return;
+          console.error(`tbody ${tbodyId} not found!`);
+          return;
       }
       
       tbody.innerHTML = '';
       
       if (data.data && data.data.length > 0) {
-        console.log(`Got ${data.data.length} records for ${type}`);
-        
-        data.data.forEach(item => {
-          const row = document.createElement('tr');
-          row.className = 'table-row hover:bg-gray-700/20';
+          console.log(`Got ${data.data.length} records for ${type}`);
           
-          if (type === 'lien') {
-            row.innerHTML = `
-              <td class="p-4">${item.direct_party_debtor || ''}</td>
-              <td class="p-4">${item.reverse_party_claimant || ''}</td>
-              <td class="p-4">${item.address || ''}</td>
-              <td class="p-4">${item.zipcode || ''}</td>
-              <td class="p-4 font-mono">${item.total_due || ''}</td>
-              <td class="p-4">${item.county || ''}</td>
-              <td class="p-4">${item.instrument || ''}</td>
-              <td class="p-4">${item.date_filed || ''}</td>
-              <td class="p-4">${item.book || ''}</td>
-              <td class="p-4">${item.page || ''}</td>
-              <td class="p-4">${item.description || ''}</td>
-              <td class="p-4">${item.pdf_document_url || ''}</td>
-              <td class="p-4">${item.pdf_file || ''}</td>
-
-            `;
-          }
-          
-          tbody.appendChild(row);
-        });
+          data.data.forEach(item => {
+              const row = document.createElement('tr');
+              row.className = 'table-row hover:bg-gray-700/20';
+              
+              if (type === 'lien') {
+                  row.innerHTML = `
+                      <td class="p-4">${item.direct_party_debtor || ''}</td>
+                      <td class="p-4">${item.address || ''}</td>
+                      <td class="p-4">${item.zipcode || ''}</td>
+                      <td class="p-4 font-mono">${item.total_due || ''}</td>
+                      <td class="p-4">${item.county || ''}</td>
+                      <td class="p-4">${item.instrument || ''}</td>
+                      <td class="p-4">${item.book || ''}</td>
+                      <td class="p-4">${item.page || ''}</td>
+                      
+                      <!-- View PDF Button -->
+                      <td class="p-4">
+                          ${item.pdf_document_url ? `
+                              <a href="${item.pdf_document_url}" target="_blank" 
+                                class="text-blue-400 hover:text-blue-300 transition-colors flex items-center group"
+                                title="View PDF Document">
+                                  <i class="fas fa-external-link-alt mr-2 text-xs"></i>
+                                  <span class="group-hover:underline">View PDF</span>
+                              </a>
+                          ` : '<span class="text-gray-500 text-sm">Not available</span>'}
+                      </td>
+                      
+                      <!-- Excel Download Button -->
+                      <td class="p-4">
+                          ${item.pdf_document_url ? `
+                              <button onclick="downloadLienExcel('${item.pdf_document_url}')" 
+                                      class="text-green-400 hover:text-green-300 transition-colors flex items-center group"
+                                      title="Download Lien Excel">
+                                  <i class="fas fa-file-excel mr-2 text-xs"></i>
+                                  <span class="group-hover:underline">Excel</span>
+                              </button>
+                          ` : '<span class="text-gray-500 text-sm">N/A</span>'}
+                      </td>
+                  `;
+              }
+              
+              tbody.appendChild(row);
+          });
       } else {
-        const colSpan = type === 'lien' ? 10 : 5;
-        tbody.innerHTML = `<tr class="table-row"><td class="p-4 text-center text-gray-500" colspan="${colSpan}">No data available</td></tr>`;
+          const colSpan = type === 'lien' ? 10 : 6; // Colspan update karein
+          tbody.innerHTML = `<tr class="table-row"><td class="p-4 text-center text-gray-500" colspan="${colSpan}">No data available</td></tr>`;
       }
-    }
+  }
     
-    function updateRealEstateTableUI(data) {
+  function updateRealEstateTableUI(data) {
       const tbody = document.getElementById('realestateTable');
       if (!tbody) return;
       
       tbody.innerHTML = '';
       
       if (data.data && data.data.length > 0) {
-        data.data.forEach(item => {
-          const row = document.createElement('tr');
-          row.className = 'table-row hover:bg-gray-700/20';
-          
-          row.innerHTML = `
-            <td class="p-4 font-medium">${item.search_name || ''}</td>
-            <td class="p-4 text-center">
-              <span class="bg-blue-500/20 text-blue-400 px-2 py-1 rounded text-xs">
-                ${item.entity_index || ''}
-              </span>
-            </td>
-            <td class="p-4 text-center">
-              <span class="bg-green-500/20 text-green-400 px-2 py-1 rounded text-xs">
-                ${item.doc_index || ''}
-              </span>
-            </td>
-            <td class="p-4">
-              ${item.pdf_viewer ? `
-                <a href="${item.pdf_viewer}" target="_blank" 
-                   class="text-blue-400 hover:text-blue-300 transition-colors flex items-center group">
-                  <i class="fas fa-external-link-alt mr-2 text-xs"></i>
-                  <span class="truncate max-w-xs group-hover:underline">View PDF</span>
-                </a>
-              ` : '<span class="text-gray-500 text-sm">Not available</span>'}
-            </td>
-            {% comment %} <td class="p-4">
-              ${item.realestate_pdf ? `
-                <a href="${item.realestate_pdf}" target="_blank" 
-                   class="text-purple-400 hover:text-purple-300 transition-colors flex items-center group">
-                  <i class="fas fa-file-pdf mr-2 text-xs"></i>
-                  <span class="truncate max-w-xs group-hover:underline">Open Document</span>
-                </a>
-              ` : '<span class="text-gray-500 text-sm">Not available</span>'}
-            </td> {% endcomment %}
-            <td class="p-4">
-              <div class="flex space-x-2">
-                ${item.pdf_viewer ? `
-                  <button onclick="openLink('${item.pdf_viewer}')" 
-                          class="text-blue-400 hover:text-blue-300 transition-colors" title="Open PDF Viewer">
-                    <i class="fas fa-eye"></i>
-                  </button>
-                ` : ''}
-                ${item.realestate_pdf ? `
-                  <button onclick="openLink('${item.realestate_pdf}')" 
-                          class="text-purple-400 hover:text-purple-300 transition-colors" title="Open PDF">
-                    <i class="fas fa-file-download"></i>
-                  </button>
-                ` : ''}
-              </div>
-            </td>
-          `;
-          
-          tbody.appendChild(row);
-        });
+          data.data.forEach(item => {
+              const row = document.createElement('tr');
+              row.className = 'table-row hover:bg-gray-700/20';
+              
+              row.innerHTML = `
+                  <td class="p-4 font-medium">${item.search_name || ''}</td>
+                  <td class="p-4 text-center">
+                      <span class="bg-blue-500/20 text-blue-400 px-2 py-1 rounded text-xs">
+                          ${item.entity_index || ''}
+                      </span>
+                  </td>
+                  <td class="p-4 text-center">
+                      <span class="bg-green-500/20 text-green-400 px-2 py-1 rounded text-xs">
+                          ${item.doc_index || ''}
+                      </span>
+                  </td>
+                  
+                  <!-- Real Estate PDF - View PDF button -->
+                  <td class="p-4">
+                      ${item.realestate_pdf ? `
+                          <a href="${item.realestate_pdf}" target="_blank" 
+                            class="text-purple-400 hover:text-purple-300 transition-colors flex items-center group"
+                            title="View Real Estate PDF">
+                              <i class="fas fa-file-pdf mr-2 text-xs"></i>
+                              <span class="truncate max-w-xs group-hover:underline">View PDF</span>
+                          </a>
+                      ` : '<span class="text-gray-500 text-sm">Not available</span>'}
+                  </td>
+                  
+                  <!-- Real Estate Excel Download -->
+                  <td class="p-4">
+                      ${item.realestate_pdf ? `
+                          <button onclick="downloadRealEstateExcel('${item.realestate_pdf}')" 
+                                  class="text-blue-400 hover:text-blue-300 transition-colors flex items-center group"
+                                  title="Download Real Estate Excel">
+                              <i class="fas fa-file-excel mr-2 text-xs"></i>
+                              <span class="group-hover:underline">Excel</span>
+                          </button>
+                      ` : '<span class="text-gray-500 text-sm">N/A</span>'}
+                  </td>
+              `;
+              
+              tbody.appendChild(row);
+          });
       } else {
-        tbody.innerHTML = `
-          <tr class="table-row">
-            <td colspan="6" class="p-4 text-center text-gray-500">
-              No real estate data available
-            </td>
-          </tr>
-        `;
+          tbody.innerHTML = `
+              <tr class="table-row">
+                  <td colspan="5" class="p-4 text-center text-gray-500">
+                      No real estate data available
+                  </td>
+              </tr>
+          `;
       }
-    }
+  }
     
     function updateCounter(elementId, count) {
       const element = document.getElementById(elementId);
@@ -870,6 +906,196 @@
         compactView.classList.remove('hidden');
       }
     }
+
+    // Excel download functions
+function downloadLienExcel(pdfUrl) {
+    console.log('Downloading Lien Excel for:', pdfUrl);
+    showStatus('Preparing Lien Excel download...', 'blue');
+    
+    fetch('/download-lien-excel/', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': getCookie('csrftoken')
+        },
+        body: JSON.stringify({pdf_url: pdfUrl})
+    })
+    .then(response => {
+        if (response.ok) {
+            return response.blob();
+        }
+        throw new Error('Network response was not ok.');
+    })
+    .then(blob => {
+        // Create download link
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.style.display = 'none';
+        a.href = url;
+        a.download = `lien_data_${Date.now()}.xlsx`;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        showStatus('Lien Excel downloaded successfully!', 'green');
+    })
+    .catch(error => {
+        console.error('Error downloading Lien Excel:', error);
+        showStatus('Error downloading Excel file: ' + error.message, 'red');
+    });
+}
+
+// Real Estate Excel download function ko update karein
+function downloadRealEstateExcel(searchName) {
+    console.log('Downloading Real Estate Excel for:', searchName);
+    showStatus('Preparing Real Estate Excel download...', 'blue');
+    
+    fetch('/download-realestate-excel/', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': getCookie('csrftoken')
+        },
+        body: JSON.stringify({search_name: searchName})
+    })
+    .then(response => {
+        if (!response.ok) {
+            return response.json().then(err => { throw new Error(err.error || 'Download failed') });
+        }
+        return response.blob();
+    })
+    .then(blob => {
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.style.display = 'none';
+        a.href = url;
+        a.download = `realestate_${searchName}_${Date.now()}.xlsx`;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        showStatus('Real Estate Excel downloaded successfully!', 'green');
+    })
+    .catch(error => {
+        console.error('Error downloading Real Estate Excel:', error);
+        showStatus('Error downloading Excel: ' + error.message, 'red');
+    });
+}
+
+// updateRealEstateTableUI function ko update karein
+function updateRealEstateTableUI(data) {
+    const tbody = document.getElementById('realestateTable');
+    if (!tbody) return;
+    
+    tbody.innerHTML = '';
+    
+    if (data.data && data.data.length > 0) {
+        data.data.forEach(item => {
+            const row = document.createElement('tr');
+            row.className = 'table-row hover:bg-gray-700/20';
+            
+            // Check if PDF is available
+            const hasPdf = item.realestate_pdf && 
+                          item.realestate_pdf !== "Not available" && 
+                          item.realestate_pdf !== "N/A" &&
+                          item.realestate_pdf !== "";
+            
+            // Check if search name is available for Excel download
+            const hasSearchName = item.search_name && item.search_name !== "";
+            
+            row.innerHTML = `
+                <td class="p-4 font-medium">${item.search_name || 'Not available'}</td>
+                <td class="p-4 text-center">
+                    <span class="bg-blue-500/20 text-blue-400 px-2 py-1 rounded text-xs">
+                        ${item.entity_index || '0'}
+                    </span>
+                </td>
+                <td class="p-4 text-center">
+                    <span class="bg-green-500/20 text-green-400 px-2 py-1 rounded text-xs">
+                        ${item.doc_index || '0'}
+                    </span>
+                </td>
+                
+                <!-- Real Estate PDF -->
+                <td class="p-4">
+                    ${hasPdf ? `
+                        <a href="${item.realestate_pdf}" target="_blank" 
+                           class="text-purple-400 hover:text-purple-300 transition-colors flex items-center group"
+                           title="View Real Estate PDF">
+                            <i class="fas fa-file-pdf mr-2 text-xs"></i>
+                            <span class="truncate max-w-xs group-hover:underline">View PDF</span>
+                        </a>
+                    ` : '<span class="text-gray-500 text-sm">Not available</span>'}
+                </td>
+                
+                <!-- Real Estate Excel Download -->
+                <td class="p-4">
+                    ${hasSearchName ? `
+                        <button onclick="downloadRealEstateExcel('${item.search_name}')" 
+                                class="text-blue-400 hover:text-blue-300 transition-colors flex items-center group"
+                                title="Download Real Estate Excel">
+                            <i class="fas fa-file-excel mr-2 text-xs"></i>
+                            <span class="group-hover:underline">Excel</span>
+                        </button>
+                    ` : '<span class="text-gray-500 text-sm">N/A</span>'}
+                </td>
+            `;
+            
+            tbody.appendChild(row);
+        });
+    } else {
+        tbody.innerHTML = `
+            <tr class="table-row">
+                <td colspan="5" class="p-4 text-center text-gray-500">
+                    No real estate data available. Run the Real Estate Scraper first.
+                </td>
+            </tr>
+        `;
+    }
+}
+
+// Bulk download functions (optional)
+function downloadAllLienExcel() {
+    showStatus('Preparing all Lien data Excel download...', 'blue');
+    
+    fetch('/download-all-lien-excel/')
+    .then(response => response.blob())
+    .then(blob => {
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.style.display = 'none';
+        a.href = url;
+        a.download = `all_lien_data_${Date.now()}.xlsx`;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        showStatus('All Lien data Excel downloaded successfully!', 'green');
+    })
+    .catch(error => {
+        console.error('Error downloading all Lien Excel:', error);
+        showStatus('Error downloading Excel file: ' + error.message, 'red');
+    });
+}
+
+function downloadAllRealEstateExcel() {
+    showStatus('Preparing all Real Estate data Excel download...', 'blue');
+    
+    fetch('/download-all-realestate-excel/')
+    .then(response => response.blob())
+    .then(blob => {
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.style.display = 'none';
+        a.href = url;
+        a.download = `all_realestate_data_${Date.now()}.xlsx`;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        showStatus('All Real Estate data Excel downloaded successfully!', 'green');
+    })
+    .catch(error => {
+        console.error('Error downloading all Real Estate Excel:', error);
+        showStatus('Error downloading Excel file: ' + error.message, 'red');
+    });
+}
     
     // Open link in new tab
     function openLink(url) {

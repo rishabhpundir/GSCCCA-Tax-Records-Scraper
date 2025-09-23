@@ -7,6 +7,10 @@ __pycache__/
 *.json
 .json
 downloads/
+RealEstate/
+realestate_documents/
+Output/
+
 # C extensions
 *.so
 *.png

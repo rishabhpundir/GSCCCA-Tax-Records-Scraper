@@ -41,17 +41,45 @@ EXTRA_HEADERS = {"Accept-Language": "en-GB,en-US;q=0.9,en;q=0.8"}
 EXCEL_FILE = "LienResults.xlsx"  # This is no longer used, but kept for context.
 FIRSTNAME_COL = "Direct Party (Debtor)"
 
+
+## ---------- Output Directories -------------------------------------------------
+# Base directory (script ke same folder mein)
+BASE_DIR = Path(__file__).parent.absolute()
+
+# Real Estate Excel files ke liye directory
+REAL_ESTATE_EXCEL_DIR = BASE_DIR / "Real estate excel"
+REAL_ESTATE_EXCEL_DIR.mkdir(exist_ok=True)  # Folder create karein agar nahi hai toh
+
+# PDF documents ke liye directory (existing)
+PDF_DIR = BASE_DIR / "realestate_documents"
+PDF_DIR.mkdir(exist_ok=True)
+
+# Output folder for input Excel files
+OUTPUT_DIR = BASE_DIR / "Output"
+OUTPUT_DIR.mkdir(exist_ok=True)
+
+console.print(f"[green]Real Estate Excel folder: {REAL_ESTATE_EXCEL_DIR}[/green]")
+console.print(f"[green]PDF Documents folder: {PDF_DIR}[/green]")
+console.print(f"[green]Output folder: {OUTPUT_DIR}[/green]")
+
+
 # ---------- Utility Function to find latest Excel file -------------------------
 def find_latest_excel_file(folder_path: Path) -> Path | None:
     """
     Finds the latest modified Excel file (.xlsx or .xls) in a given folder.
     """
     try:
+        if not folder_path.exists():
+            console.print(f"[yellow]Folder does not exist: {folder_path}[/yellow]")
+            return None
+            
         files = [f for f in folder_path.iterdir() if f.is_file() and f.suffix in ('.xlsx', '.xls')]
         if not files:
+            console.print(f"[yellow]No Excel files found in: {folder_path}[/yellow]")
             return None
         
         latest_file = max(files, key=os.path.getmtime)
+        console.print(f"[green]Latest Excel file found: {latest_file.name}[/green]")
         return latest_file
     except Exception as e:
         console.print(f"[red]Error finding latest file: {e}[/red]")
@@ -155,11 +183,11 @@ class RealestateIndexScraper:
         try:
             console.print("[cyan]Reading Excel and performing searches[/cyan]")
             
-            output_folder = Path("Output") # Specify the folder to look for files
-            latest_excel_path = find_latest_excel_file(output_folder)
+            # OUTPUT_DIR mein latest Excel file dhoondein
+            latest_excel_path = find_latest_excel_file(OUTPUT_DIR)
             
             if not latest_excel_path:
-                raise FileNotFoundError(f"No Excel file found in '{output_folder}'. Please place a file there.")
+                raise FileNotFoundError(f"No Excel file found in '{OUTPUT_DIR}'. Please place a file there.")
             
             console.print(f"[yellow]Using latest Excel file: {latest_excel_path.name}[/yellow]")
             
@@ -199,7 +227,6 @@ class RealestateIndexScraper:
         except Exception as e:
             console.print(f"[red]Error in step3_fill_form_from_excel: {e}[/red]")
             raise
-
     async def step4_select_names_and_display(self, search_name: str):
         try:
             radios = await self.page.query_selector_all("input[name='rdoEntityName']")
@@ -287,9 +314,8 @@ class RealestateIndexScraper:
                         console.print(f"[yellow]No popup opened, using same page for entity {entity_idx}[/yellow]")
                         popup = self.page
 
-                    # --- Directory for saving PDFs ---
-                    pdf_dir = Path("realestate_documents")
-                    pdf_dir.mkdir(exist_ok=True)
+                    # --- Directory for saving PDFs (global PDF_DIR use karein) ---
+                    PDF_DIR.mkdir(exist_ok=True)
 
                     # --- Collect thumbnails ---
                     thumb_links = await popup.query_selector_all("a[id*='lvThumbnails_lnkThumbnail']")
@@ -317,11 +343,11 @@ class RealestateIndexScraper:
                             try:
                                 canvas = await popup.query_selector("canvas")
                                 if canvas:
-                                    screenshot_path = pdf_dir / f"{safe_title}.png"
+                                    screenshot_path = PDF_DIR / f"{safe_title}.png"
                                     await canvas.screenshot(path=str(screenshot_path))
 
                                     # --- Convert PNG → PDF ---
-                                    pdf_path = pdf_dir / f"{safe_title}.pdf"
+                                    pdf_path = PDF_DIR / f"{safe_title}.pdf"
                                     with open(pdf_path, "wb") as f:
                                         f.write(img2pdf.convert(str(screenshot_path)))
                                     # ✅ Delete PNG after converting
@@ -330,13 +356,15 @@ class RealestateIndexScraper:
 
                                     console.print(f"[blue]Saved PDF: {pdf_path}[/blue]")
                                     
-                                    # Save result row
+                                    # Save result row - relative path use karein for portability
+                                    relative_pdf_path = pdf_path.relative_to(BASE_DIR)
+                                    
                                     self.results.append({
-                                        "Search Name": search_name,
-                                        "Entity_index": entity_idx,
-                                        "DOC_index": j + 1,
-                                        "PDF_viewer": popup.url,
-                                        "RealEstate_PDF": str(pdf_path)
+                                        "search_name": search_name,
+                                        "entity_index": entity_idx,
+                                        "doc_index": j + 1,
+                                        "pdf_viewer": popup.url,
+                                        "realestate_pdf": str(relative_pdf_path)  # Relative path store karein
                                     })
                                 else:
                                     console.print("[yellow]Canvas not found for screenshot[/yellow]")
@@ -365,8 +393,8 @@ class RealestateIndexScraper:
             console.print(f"[bold red]Fatal error in step5_parse_documents: {e}[/bold red]")
             traceback.print_exc()
 
-
-    def save_results_to_excel(self, filename="realestate_index.xlsx"):
+    def save_results_to_excel(self, filename_prefix="realestate_index"):
+        """Save results to Excel file in 'Real estate excel' folder"""
         if not self.results:
             console.print("[red]No results to save[/red]")
             return None
@@ -376,16 +404,44 @@ class RealestateIndexScraper:
             df.drop_duplicates(subset=["PDF_viewer"], inplace=True)
             df.reset_index(drop=True, inplace=True)
 
-            output_dir = Path("RealEstate_Excel")
-            output_dir.mkdir(exist_ok=True)
+            # Ensure Real Estate Excel directory exists
+            REAL_ESTATE_EXCEL_DIR.mkdir(exist_ok=True)
 
+            # Timestamp ke saath filename banayein
             ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-            final_filename = f"realestate_index_{ts}.xlsx"
-            final_path = output_dir / final_filename
+            final_filename = f"{filename_prefix}_{ts}.xlsx"
+            final_path = REAL_ESTATE_EXCEL_DIR / final_filename
 
-            df.to_excel(final_path, index=False)
-            console.print(f"[green]Results saved -> {final_path}[/green]")
+            # Excel file save karein
+            with pd.ExcelWriter(final_path, engine='openpyxl') as writer:
+                df.to_excel(writer, sheet_name='Real Estate Data', index=False)
+                
+                # Optional: Worksheet ko format karein
+                workbook = writer.book
+                worksheet = writer.sheets['Real Estate Data']
+                
+                # Column widths auto-adjust karein
+                for column in worksheet.columns:
+                    max_length = 0
+                    column_letter = column[0].column_letter
+                    for cell in column:
+                        try:
+                            if len(str(cell.value)) > max_length:
+                                max_length = len(str(cell.value))
+                        except:
+                            pass
+                    adjusted_width = min(max_length + 2, 50)
+                    worksheet.column_dimensions[column_letter].width = adjusted_width
+
+            console.print(f"[green]Real Estate Excel saved -> {final_path}[/green]")
+            
+            # File size bhi display karein
+            file_size = final_path.stat().st_size / 1024  # KB mein
+            console.print(f"[blue]File size: {file_size:.2f} KB[/blue]")
+            console.print(f"[blue]Total records saved: {len(df)}[/blue]")
+            
             return final_path
+            
         except Exception as e:
             console.print(f"[red]Failed to save Excel: {e}[/red]")
             traceback.print_exc()
@@ -438,16 +494,23 @@ async def main():
     scraper = RealestateIndexScraper()
     try:
         await scraper.run()
+        
+        # Final results save karein
+        if scraper.results:
+            excel_path = scraper.save_results_to_excel()
+            if excel_path:
+                console.print(f"[bold green]✓ Real Estate data successfully saved to: {excel_path}[/bold green]")
+            else:
+                console.print("[bold red]✗ Failed to save Excel file[/bold red]")
+        else:
+            console.print("[yellow]No results to save[/yellow]")
+            
     except KeyboardInterrupt:
         console.print("\n[bold yellow]Interrupted by user![/bold yellow]\n")
     except Exception as e:
         console.print(f"\n[bold red]Unexpected error: {e}[/bold red]\n")
         traceback.print_exc()
     finally:
-        try:
-            scraper.save_results_to_excel()
-        except Exception as e:
-            console.print(f"[red]Error saving final results: {e}[/red]")
         console.print("[bold green]Exiting...[/bold green]")
 
 if __name__ == "__main__":
