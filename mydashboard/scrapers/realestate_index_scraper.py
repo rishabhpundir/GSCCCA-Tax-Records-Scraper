@@ -46,17 +46,16 @@ FIRSTNAME_COL = "Direct Party (Debtor)"
 # Base directory (script ke same folder mein)
 BASE_DIR = Path(__file__).parent.absolute()
 
-# Real Estate Excel files ke liye directory
-REAL_ESTATE_EXCEL_DIR = BASE_DIR / "Real estate excel"
-REAL_ESTATE_EXCEL_DIR.mkdir(exist_ok=True)  # Folder create karein agar nahi hai toh
 
-# PDF documents ke liye directory (existing)
-PDF_DIR = BASE_DIR / "realestate_documents"
-PDF_DIR.mkdir(exist_ok=True)
-
-# Output folder for input Excel files
+# ✅ Scrapers folder ke andar wala Output folder use karein
 OUTPUT_DIR = BASE_DIR / "Output"
+REAL_ESTATE_EXCEL_DIR = BASE_DIR / "Real estate excel"
+PDF_DIR = BASE_DIR / "realestate_documents"
+
+# Create folders if they don't exist
 OUTPUT_DIR.mkdir(exist_ok=True)
+REAL_ESTATE_EXCEL_DIR.mkdir(exist_ok=True)
+PDF_DIR.mkdir(exist_ok=True)
 
 console.print(f"[green]Real Estate Excel folder: {REAL_ESTATE_EXCEL_DIR}[/green]")
 console.print(f"[green]PDF Documents folder: {PDF_DIR}[/green]")
@@ -64,6 +63,23 @@ console.print(f"[green]Output folder: {OUTPUT_DIR}[/green]")
 
 
 # ---------- Utility Function to find latest Excel file -------------------------
+def check_and_wait_for_excel_file(folder_path: Path, timeout=60) -> Path | None:
+    """Wait for Excel file to appear in folder"""
+    import time
+    
+    console.print(f"[yellow]Waiting for Excel file in {folder_path}...[/yellow]")
+    start_time = time.time()
+    
+    while time.time() - start_time < timeout:
+        latest_file = find_latest_excel_file(folder_path)
+        if latest_file:
+            return latest_file
+        
+        console.print("[yellow]Excel file not found yet, waiting 5 seconds...[/yellow]")
+        time.sleep(5)
+    
+    return None
+
 def find_latest_excel_file(folder_path: Path) -> Path | None:
     """
     Finds the latest modified Excel file (.xlsx or .xls) in a given folder.
@@ -184,7 +200,7 @@ class RealestateIndexScraper:
             console.print("[cyan]Reading Excel and performing searches[/cyan]")
             
             # OUTPUT_DIR mein latest Excel file dhoondein
-            latest_excel_path = find_latest_excel_file(OUTPUT_DIR)
+            latest_excel_path = check_and_wait_for_excel_file(OUTPUT_DIR)
             
             if not latest_excel_path:
                 raise FileNotFoundError(f"No Excel file found in '{OUTPUT_DIR}'. Please place a file there.")
@@ -314,7 +330,7 @@ class RealestateIndexScraper:
                         console.print(f"[yellow]No popup opened, using same page for entity {entity_idx}[/yellow]")
                         popup = self.page
 
-                    # --- Directory for saving PDFs (global PDF_DIR use karein) ---
+                    # --- Directory for saving PDFs ---
                     PDF_DIR.mkdir(exist_ok=True)
 
                     # --- Collect thumbnails ---
@@ -356,16 +372,22 @@ class RealestateIndexScraper:
 
                                     console.print(f"[blue]Saved PDF: {pdf_path}[/blue]")
                                     
-                                    # Save result row - relative path use karein for portability
+                                    # ✅ IMPORTANT: Save result to self.results list
                                     relative_pdf_path = pdf_path.relative_to(BASE_DIR)
                                     
-                                    self.results.append({
+                                    result_data = {
                                         "search_name": search_name,
                                         "entity_index": entity_idx,
                                         "doc_index": j + 1,
                                         "pdf_viewer": popup.url,
-                                        "realestate_pdf": str(relative_pdf_path)  # Relative path store karein
-                                    })
+                                        "realestate_pdf": str(relative_pdf_path)
+                                    }
+                                    
+                                    # ✅ Add to results list for Excel
+                                    self.results.append(result_data)
+                                    
+                                    console.print(f"[green]Added to results: {result_data}[/green]")
+                                    
                                 else:
                                     console.print("[yellow]Canvas not found for screenshot[/yellow]")
 
@@ -380,7 +402,7 @@ class RealestateIndexScraper:
                     if popup != self.page:
                         try:
                             await popup.close()
-                            await asyncio.sleep(1)  # wait before next
+                            await asyncio.sleep(1)
                             console.print(f"[red]Popup closed for entity {entity_idx}[/red]")
                         except Exception as e:
                             console.print(f"[red]Error closing popup: {e}[/red]")

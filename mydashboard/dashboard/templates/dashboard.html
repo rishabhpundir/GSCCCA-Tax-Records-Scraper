@@ -399,7 +399,8 @@
                   <th class="p-4 text-left">Search Name</th>
                   <th class="p-4 text-left">Entity</th>
                   <th class="p-4 text-left">Document</th>
-                  <th class="p-4 text-left">Real Estate PDF</th>
+                  {% comment %} <th class="p-4 text-left">Real Estate PDF</th> {% endcomment %}
+                  <th class="p-4 text-left">View PDF</th>
                   
                   
                   <!-- Naya column add karein -->
@@ -423,13 +424,25 @@
                   </td>
                   
                   <!-- Real Estate PDF - Improved logic -->
-                  <td class="p-4">
+                  {% comment %} <td class="p-4">
                     {% if item.realestate_pdf and item.realestate_pdf != "Not available" and item.realestate_pdf != "N/A" %}
                     <a href="{{ item.realestate_pdf }}" target="_blank" 
                       class="text-purple-400 hover:text-purple-300 transition-colors flex items-center group"
                       title="View Real Estate PDF">
                       <i class="fas fa-file-pdf mr-2 text-xs"></i>
                       <span class="truncate max-w-xs group-hover:underline">View PDF</span>
+                    </a>
+                    {% else %}
+                    <span class="text-gray-500 text-sm">Not available</span>
+                    {% endif %}
+                  </td> {% endcomment %}
+                  <td class="p-4">
+                    {% if item.pdf_viewer and item.pdf_viewer != "Not available" and item.pdf_viewer != "N/A" %}
+                    <a href="{{ item.pdf_viewer }}" target="_blank" 
+                      class="text-purple-400 hover:text-purple-300 transition-colors flex items-center group"
+                      title="View PDF Viewer">
+                      <i class="fas fa-external-link-alt mr-2 text-xs"></i>
+                      <span class="truncate max-w-xs group-hover:underline">View PDF Viewer</span>
                     </a>
                     {% else %}
                     <span class="text-gray-500 text-sm">Not available</span>
@@ -793,7 +806,7 @@
                       </span>
                   </td>
                   
-                  <!-- Real Estate PDF - View PDF button -->
+                  {% comment %} <!-- Real Estate PDF - View PDF button -->
                   <td class="p-4">
                       ${item.realestate_pdf ? `
                           <a href="${item.realestate_pdf}" target="_blank" 
@@ -803,8 +816,18 @@
                               <span class="truncate max-w-xs group-hover:underline">View PDF</span>
                           </a>
                       ` : '<span class="text-gray-500 text-sm">Not available</span>'}
+                  </td> {% endcomment %}
+                  <td class="p-4">
+                      ${item.pdf_viewer ? `
+                          <a href="${item.pdf_viewer}" target="_blank" 
+                            class="text-purple-400 hover:text-purple-300 transition-colors flex items-center group"
+                            title="View PDF Viewer">
+                              <i class="fas fa-external-link-alt mr-2 text-xs"></i>
+                              <span class="truncate max-w-xs group-hover:underline">View PDF Viewer</span>
+                          </a>
+                      ` : '<span class="text-gray-500 text-sm">Not available</span>'}
                   </td>
-                  
+
                   <!-- Real Estate Excel Download -->
                   <td class="p-4">
                       ${item.realestate_pdf ? `
@@ -1014,7 +1037,7 @@ function updateRealEstateTableUI(data) {
                     </span>
                 </td>
                 
-                <!-- Real Estate PDF -->
+                {% comment %} <!-- Real Estate PDF -->
                 <td class="p-4">
                     ${hasPdf ? `
                         <a href="${item.realestate_pdf}" target="_blank" 
@@ -1022,6 +1045,16 @@ function updateRealEstateTableUI(data) {
                            title="View Real Estate PDF">
                             <i class="fas fa-file-pdf mr-2 text-xs"></i>
                             <span class="truncate max-w-xs group-hover:underline">View PDF</span>
+                        </a>
+                    ` : '<span class="text-gray-500 text-sm">Not available</span>'}
+                </td> {% endcomment %}
+                <td class="p-4">
+                    ${item.pdf_viewer ? `
+                        <a href="${item.pdf_viewer}" target="_blank" 
+                           class="text-purple-400 hover:text-purple-300 transition-colors flex items-center group"
+                           title="View PDF Viewer">
+                            <i class="fas fa-external-link-alt mr-2 text-xs"></i>
+                            <span class="truncate max-w-xs group-hover:underline">View PDF Viewer</span>
                         </a>
                     ` : '<span class="text-gray-500 text-sm">Not available</span>'}
                 </td>

@@ -74,7 +74,16 @@ class GSCCCAScraper:
             self.login_url = "https://apps.gsccca.org/login.asp"
             self.name_search_url = "https://search.gsccca.org/Lien/namesearch.asp"
             self.results = []
-            self.downloads_dir = "downloads"
+            
+            # ✅ SINGLE Output folder definition (scrapers folder ke andar)
+            script_dir = Path(__file__).parent.absolute()
+            self.output_dir = script_dir / "Output"
+            self.downloads_dir = script_dir / "downloads"
+            
+            # Agar folder na ho toh bana do
+            self.output_dir.mkdir(parents=True, exist_ok=True)
+            self.downloads_dir.mkdir(parents=True, exist_ok=True)
+
 
             # SSL Context for aiohttp
             self.ssl_context = ssl.create_default_context(cafile=certifi.where())
@@ -247,21 +256,35 @@ class GSCCCAScraper:
         except Exception as e:
             console.print(f"[red]Error in step3_fill_form: {e}[/red]")
 
-    async def step4_select_highest_occurs(self):
+    async def step4_select_highest_occurs(self, email: str = None, password: str = None):
         """On liennames.asp page, select row with highest Occurs score."""
         print("[STEP 4] Selecting row with highest Occurs...")
 
         try:
+            # agar session expire ho gaya toh redirect hoga login.asp pe
+            if "login.asp" in self.page.url:
+                console.print("[yellow]Session expired → Re-logging in...[/yellow]")
+                if email and password:
+                    success = await self.login_(email, password)
+                    if not success:
+                        console.print("[red]Re-login failed. Stopping step 4.[/red]")
+                        return
+                    # dubara liennames.asp pe jao
+                    await self.page.goto("https://apps.gsccca.org/lien/liennames.asp", wait_until="domcontentloaded")
+                else:
+                    console.print("[red]No credentials provided for re-login![/red]")
+                    return
+
             await self.page.wait_for_selector("table.name_results", timeout=30_000)
             rows = await self.page.query_selector_all("table.name_results tr")
             highest_occurs = -1
             best_radio = None
+
             for row in rows[1:]:  
                 cols = await row.query_selector_all("td")
                 if len(cols) < 3:
                     continue
                 occurs_text = await cols[1].inner_text()
-                name_text = await cols[2].inner_text()
                 radio = await cols[0].query_selector("input[type='radio']")
                 try:
                     occurs = int(occurs_text.strip())
@@ -275,15 +298,15 @@ class GSCCCAScraper:
             if best_radio:
                 await best_radio.click()
                 print(f"[STEP 4] Selected row with highest Occurs = {highest_occurs}")
+                await self.page.click("input[value='Display Details']")
+                await self.page.wait_for_load_state("domcontentloaded")
+                await self.page.wait_for_timeout(self.time_sleep())
             else:
                 print("[STEP 4] No rows found to select")
-                
-            await self.page.click("input[value='Display Details']")
-            await self.page.wait_for_load_state("domcontentloaded")
-            await self.page.wait_for_timeout(self.time_sleep())
 
         except Exception as e:
             console.print(f"[red]Error in step4_select_highest_occurs: {e}[/red]")
+
 
     async def human_delay(self, min_t=0.8, max_t=2.0):
         try:
@@ -719,10 +742,7 @@ class GSCCCAScraper:
 
             df = df[columns]
 
-            base_dir = os.path.dirname(os.path.abspath(__file__))
-            output_dir = os.path.join(base_dir, "Output")
-            os.makedirs(output_dir, exist_ok=True)  
-
+            # ✅ Use the single output_dir defined in __init__
             if "PDF" in df.columns:
                 df["PDF"] = df["PDF"].apply(
                     lambda x: f'=HYPERLINK("file:///{os.path.join(self.downloads_dir, x).replace(os.sep, "/")}", "{x}")'
@@ -733,9 +753,8 @@ class GSCCCAScraper:
             base, ext = os.path.splitext(filename)
             final_filename = f"{base}_{ts}{ext}"
             
-            output_dir = Path("Output")
-            output_dir.mkdir(exist_ok=True)
-            final_path = os.path.join(output_dir, final_filename)
+            # ✅ Use self.output_dir instead of creating new one
+            final_path = self.output_dir / final_filename
 
             with pd.ExcelWriter(final_path, engine="openpyxl") as writer:
                 df.to_excel(writer, index=False)
@@ -743,8 +762,8 @@ class GSCCCAScraper:
             print(f"[INFO] Saved {len(df)} records to {final_path}")
         except Exception as e:
             console.print(f"[red]Error in save_to_excel: {e}[/red]")
-        
-        
+            
+            
 
     async def scrape(self, page_url: str) -> Dict[str, Any]:
         """Open *url* in the current page and return latest post data."""
@@ -828,7 +847,7 @@ class GSCCCAScraper:
             await self.check_and_handle_announcement()
             await self.step3_fill_form()
             await self.check_and_handle_announcement()
-            await self.step4_select_highest_occurs()
+            await self.step4_select_highest_occurs(email=self.email, password=self.password)
             await self.check_and_handle_announcement()
             await self.process_rp_details()  
             await self.check_and_handle_announcement()
