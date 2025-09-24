@@ -257,9 +257,9 @@ def run_realestate_scraper_and_save():
             # Ab, database se data nikal kar Excel file mein save karo
             excel_path = scraper.save_results_to_excel()
             if excel_path:
-                logger.info(f"✓ Real Estate data successfully saved to Excel at: {excel_path}")
+                logger.info(f"SUCCESS: Real Estate data successfully saved to Excel at: {excel_path}")
             else:
-                logger.error("✗ Failed to save Excel file from scraper results.")
+                logger.error("FAILED: Failed to save Excel file from scraper results.")
 
         else:
             logger.warning("No real estate results found in scraper, nothing to save.")
