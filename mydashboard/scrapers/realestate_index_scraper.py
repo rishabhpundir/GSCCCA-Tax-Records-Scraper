@@ -8,15 +8,14 @@ import traceback
 import ssl
 import certifi
 import pandas as pd
-import base64
 import re
 from pathlib import Path
 from dotenv import load_dotenv
 from rich.console import Console
 import playwright.async_api as pw
 from datetime import datetime
-from PIL import Image  # Add this import for image to PDF conversion
-import img2pdf  # Import img2pdf for image to PDF conversion
+from PIL import Image
+import img2pdf
 
 load_dotenv()
 console = Console()
@@ -38,21 +37,15 @@ UA_TYPE = "win"
 UA = UA_DICT.get(UA_TYPE, UA_DICT["win"])
 EXTRA_HEADERS = {"Accept-Language": "en-GB,en-US;q=0.9,en;q=0.8"}
 
-EXCEL_FILE = "LienResults.xlsx"  # This is no longer used, but kept for context.
+EXCEL_FILE = "LienResults.xlsx"
 FIRSTNAME_COL = "Direct Party (Debtor)"
 
-
 ## ---------- Output Directories -------------------------------------------------
-# Base directory (script ke same folder mein)
 BASE_DIR = Path(__file__).parent.absolute()
-
-
-# ✅ Scrapers folder ke andar wala Output folder use karein
 OUTPUT_DIR = BASE_DIR / "Output"
 REAL_ESTATE_EXCEL_DIR = BASE_DIR / "Real estate excel"
 PDF_DIR = BASE_DIR / "realestate_documents"
 
-# Create folders if they don't exist
 OUTPUT_DIR.mkdir(exist_ok=True)
 REAL_ESTATE_EXCEL_DIR.mkdir(exist_ok=True)
 PDF_DIR.mkdir(exist_ok=True)
@@ -60,7 +53,6 @@ PDF_DIR.mkdir(exist_ok=True)
 console.print(f"[green]Real Estate Excel folder: {REAL_ESTATE_EXCEL_DIR}[/green]")
 console.print(f"[green]PDF Documents folder: {PDF_DIR}[/green]")
 console.print(f"[green]Output folder: {OUTPUT_DIR}[/green]")
-
 
 # ---------- Utility Function to find latest Excel file -------------------------
 def check_and_wait_for_excel_file(folder_path: Path, timeout=60) -> Path | None:
@@ -89,18 +81,17 @@ def find_latest_excel_file(folder_path: Path) -> Path | None:
             console.print(f"[yellow]Folder does not exist: {folder_path}[/yellow]")
             return None
             
-        files = [f for f in folder_path.iterdir() if f.is_file() and f.suffix in ('.xlsx', '.xls')]
+        files = [f for f in folder_path.iterdir() if f.is_file() and f.suffix in ('.xlsx', '.xls', '.csv')]
         if not files:
-            console.print(f"[yellow]No Excel files found in: {folder_path}[/yellow]")
+            console.print(f"[yellow]No Excel/CSV files found in: {folder_path}[/yellow]")
             return None
         
         latest_file = max(files, key=os.path.getmtime)
-        console.print(f"[green]Latest Excel file found: {latest_file.name}[/green]")
+        console.print(f"[green]Latest Excel/CSV file found: {latest_file.name}[/green]")
         return latest_file
     except Exception as e:
         console.print(f"[red]Error finding latest file: {e}[/red]")
         return None
-
 
 def image_to_pdf(img_path, pdf_path):
     try:
@@ -113,9 +104,7 @@ def image_to_pdf(img_path, pdf_path):
         console.print(f"[red]Failed to convert image {img_path} to PDF: {e}[/red]")
         return False
 
-
 # ---------- Scraper Class -----------------------------------------------------
-
 class RealestateIndexScraper:
     def __init__(self) -> None:
         try:
@@ -123,7 +112,6 @@ class RealestateIndexScraper:
             self.email = TAX_EMAIL
             self.password = TAX_PASSWORD
             self.realestate_url = "https://search.gsccca.org/RealEstate/namesearch.asp"
-            self.ssl_context = ssl.create_default_context(cafile=certifi.where())
             self.results = []
         except Exception as e:
             console.print(f"[red]Error initializing RealestateIndexScraper: {e}[/red]")
@@ -138,24 +126,21 @@ class RealestateIndexScraper:
 
     async def login(self) -> bool:
         try:
+            console.print("[yellow]Starting login process...[/yellow]")
             await self.page.goto("https://apps.gsccca.org/login.asp", wait_until="domcontentloaded", timeout=60000)
             await self.page.wait_for_timeout(self.time_sleep())
-            await self.check_and_handle_announcement()  
+            
+            await self.check_and_handle_announcement()
+            
             await self.page.fill("input[name='txtUserID']", self.email)
             await self.page.fill("input[name='txtPassword']", self.password)
             await self.page.wait_for_timeout(2000) 
-
-            console.print("[LOGIN] Checking 'Remember login details' checkbox if not already checked...")
+            
             checkbox = await self.page.query_selector("input[type='checkbox'][name='permanent']")
             if checkbox:
                 is_checked = await checkbox.is_checked()
                 if not is_checked:
                     await checkbox.click()
-                    console.print("[LOGIN] Checkbox clicked.")
-                else:
-                    console.print("[LOGIN] Checkbox already checked.")
-            else:
-                console.print("[LOGIN] Checkbox not found on the page.")
             
             try:
                 await self.page.click("img[name='logon']")
@@ -169,9 +154,12 @@ class RealestateIndexScraper:
                 state = await self.page.context.storage_state()
                 Path(STATE_FILE).write_text(json.dumps(state, indent=2))
                 return True
+            
+            console.print("[red]Login failed.[/red]")
             return False
         except Exception as e:
             console.print(f"[red]Error during login: {e}[/red]")
+            traceback.print_exc()
             return False
 
     async def check_and_handle_announcement(self):
@@ -199,43 +187,57 @@ class RealestateIndexScraper:
         try:
             console.print("[cyan]Reading Excel and performing searches[/cyan]")
             
-            # OUTPUT_DIR mein latest Excel file dhoondein
             latest_excel_path = check_and_wait_for_excel_file(OUTPUT_DIR)
             
             if not latest_excel_path:
-                raise FileNotFoundError(f"No Excel file found in '{OUTPUT_DIR}'. Please place a file there.")
+                raise FileNotFoundError(f"No Excel/CSV file found in '{OUTPUT_DIR}'. Please place a file there.")
             
-            console.print(f"[yellow]Using latest Excel file: {latest_excel_path.name}[/yellow]")
+            console.print(f"[yellow]Using latest file: {latest_excel_path.name}[/yellow]")
             
-            df = pd.read_excel(latest_excel_path)
+            if latest_excel_path.suffix == '.csv':
+                df = pd.read_csv(latest_excel_path)
+            else:
+                df = pd.read_excel(latest_excel_path)
             
             if FIRSTNAME_COL not in df.columns:
-                raise ValueError(f"Excel must have a column named: '{FIRSTNAME_COL}'")
+                raise ValueError(f"File must have a column named: '{FIRSTNAME_COL}'")
 
             console.print(f"[yellow]Total rows found: {len(df)}[/yellow]")
             
             for idx, row in df.iterrows():
                 try:
-                    console.print(f"[yellow]Processing row {idx+1}...[/yellow]")
+                    console.print(f"[yellow]Processing row {idx+1}/{len(df)}...[/yellow]")
                     raw_name = str(row[FIRSTNAME_COL]).strip()
-                    if not raw_name or raw_name.lower() == "nan":
-                        console.print(f"[red]Skipping row {idx+1} due to empty name.[/red]")
+                    if not raw_name or raw_name.lower() in ["nan", "not found"]:
+                        console.print(f"[red]Skipping row {idx+1} due to empty/invalid name.[/red]")
                         continue
 
-                    search_name = raw_name.split(";")[0].strip()
-                    console.print(f"[blue]Searching -> {search_name}[/blue]")
-
-                    await self.page.fill("input[name='txtSearchName']", search_name)
-                    await self.page.click("#btnSubmit")
-                    await self.page.wait_for_load_state("domcontentloaded", timeout=20000)
-                    await asyncio.sleep(self.time_sleep())
-
-                    await self.step4_select_names_and_display(search_name)
-
-                    await self.page.goto(self.realestate_url, wait_until="domcontentloaded")
-                    await self.check_and_handle_announcement()
-                    await self.page.wait_for_timeout(self.time_sleep())
-                
+                    # Handle multiple names in one cell
+                    search_names = [name.strip() for name in raw_name.split(';')]
+                    
+                    for search_name in search_names:
+                        if not search_name:
+                            continue
+                        
+                        console.print(f"[blue]Searching -> {search_name}[/blue]")
+                        
+                        # Navigate to search page before each new search
+                        await self.page.goto(self.realestate_url, wait_until="domcontentloaded", timeout=30000)
+                        await self.check_and_handle_announcement()
+                        await self.page.wait_for_selector("input[name='txtSearchName']")
+                        
+                        await self.page.fill("input[name='txtSearchName']", search_name)
+                        await self.page.click("#btnSubmit")
+                        
+                        # Wait for results or timeout
+                        try:
+                            await self.page.wait_for_load_state("domcontentloaded", timeout=20000)
+                            await asyncio.sleep(self.time_sleep())
+                            await self.step4_select_names_and_display(search_name)
+                        except pw.TimeoutError:
+                            console.print(f"[yellow]Search results for '{search_name}' timed out or not found.[/yellow]")
+                            continue
+                            
                 except Exception as e:
                     console.print(f"[red]Error processing row {idx+1}: {e}[/red]")
                     continue
@@ -243,13 +245,15 @@ class RealestateIndexScraper:
         except Exception as e:
             console.print(f"[red]Error in step3_fill_form_from_excel: {e}[/red]")
             raise
+    
     async def step4_select_names_and_display(self, search_name: str):
         try:
             radios = await self.page.query_selector_all("input[name='rdoEntityName']")
-            console.print(f"[cyan]Found {len(radios)} entity names for {search_name}[/cyan]")
+            console.print(f"[cyan]Found {len(radios)} potential entity names for '{search_name}'[/cyan]")
 
             for i in range(len(radios)):
                 try:
+                    # Refreshing radio buttons list to avoid staleness
                     current_radios = await self.page.query_selector_all("input[name='rdoEntityName']")
                     radio = current_radios[i]
 
@@ -267,7 +271,6 @@ class RealestateIndexScraper:
 
                     console.print(f"[blue]Opened Display Details for entity {i+1}[/blue]")
 
-                    # Step 5: Parse documents for this entity
                     await self.step5_parse_documents(search_name, i+1)
 
                     # Go back to entity selection
@@ -283,11 +286,10 @@ class RealestateIndexScraper:
             console.print(f"[red]Step 4 error: {e}[/red]")
             traceback.print_exc()
 
-
     async def step5_parse_documents(self, search_name: str, entity_idx: int):
         try:
             links = await self.page.query_selector_all("a[href*='final.asp']")
-            console.print(f"[cyan]Found {len(links)} GE/GR document links[/cyan]")
+            console.print(f"[cyan]Found {len(links)} GE/GR document links for entity {entity_idx}[/cyan]")
 
             if not links:
                 console.print(f"[yellow]No document links found for entity {entity_idx}[/yellow]")
@@ -295,43 +297,34 @@ class RealestateIndexScraper:
 
             hrefs = []
             for link in links:
-                try:
-                    href = await link.get_attribute("href")
-                    if href:
-                        if "fnSubmitThisForm" in href:
-                            inner = href.split("fnSubmitThisForm('")[1].split("')")[0]
-                            pdf_url = f"https://search.gsccca.org/RealEstate/{inner}"
-                        else:
-                            pdf_url = href
-                        hrefs.append(pdf_url)
-                except Exception as e:
-                    console.print(f"[red]Error extracting href from link: {e}[/red]")
-                    continue
+                href = await link.get_attribute("href")
+                if href:
+                    if "fnSubmitThisForm" in href:
+                        inner = href.split("fnSubmitThisForm('")[1].split("')")[0]
+                        pdf_url = f"https://search.gsccca.org/RealEstate/{inner}"
+                    else:
+                        pdf_url = href
+                    hrefs.append(pdf_url)
 
             for i, pdf_url in enumerate(hrefs):
                 try:
-                    console.print(f"[green]Opening doc {i + 1}: {pdf_url}[/green]")
-
+                    console.print(f"[green]Opening doc {i + 1} for entity {entity_idx}[/green]")
                     await self.page.goto(pdf_url, wait_until="domcontentloaded", timeout=30000)
                     await asyncio.sleep(self.time_sleep())
 
-                    # --- Try opening popup ---
+                    # --- Open popup or use same page ---
+                    popup = None
                     try:
                         async with self.page.context.expect_page(timeout=5000) as popup_info:
                             view_button = await self.page.query_selector("input[value='View Image']")
                             if view_button:
                                 await view_button.click()
-                            else:
-                                console.print("[yellow]'View Image' button not found[/yellow]")
                         popup = await popup_info.value
                         await popup.wait_for_load_state("domcontentloaded")
-                        console.print(f"[green]Popup opened for entity {entity_idx}[/green]")
+                        console.print(f"[green]Popup opened for doc {i+1}[/green]")
                     except Exception:
-                        console.print(f"[yellow]No popup opened, using same page for entity {entity_idx}[/yellow]")
+                        console.print(f"[yellow]No popup opened, using main page for doc {i+1}[/yellow]")
                         popup = self.page
-
-                    # --- Directory for saving PDFs ---
-                    PDF_DIR.mkdir(exist_ok=True)
 
                     # --- Collect thumbnails ---
                     thumb_links = await popup.query_selector_all("a[id*='lvThumbnails_lnkThumbnail']")
@@ -340,9 +333,9 @@ class RealestateIndexScraper:
                     for j, thumb_link in enumerate(thumb_links):
                         try:
                             await thumb_link.click()
-                            await popup.wait_for_timeout(2000)  # allow render
+                            await popup.wait_for_timeout(2000)
 
-                            # --- Extract Book & Page Number ---
+                            # --- Extract Book & Page Number from header ---
                             try:
                                 header_text = await popup.inner_text("#lblHeader")
                                 match = re.search(r"Book\s+(\d+)\s+Page\s+(\d+)", header_text)
@@ -351,64 +344,60 @@ class RealestateIndexScraper:
                                     page_no = match.group(2)
                                     safe_title = f"RE_Book_{book_no}_Page_{page_no}"
                                 else:
-                                    safe_title = f"Entity_{entity_idx}_Doc_{j+1}"
+                                    safe_title = f"Entity_{entity_idx}_Doc_{i+1}_Page_{j+1}"
                             except Exception:
-                                safe_title = f"Entity_{entity_idx}_Doc_{j+1}"
+                                safe_title = f"Entity_{entity_idx}_Doc_{i+1}_Page_{j+1}"
 
-                            # --- Screenshot canvas only ---
+                            # --- Screenshot canvas and save to PDF ---
                             try:
                                 canvas = await popup.query_selector("canvas")
                                 if canvas:
                                     screenshot_path = PDF_DIR / f"{safe_title}.png"
                                     await canvas.screenshot(path=str(screenshot_path))
-
-                                    # --- Convert PNG → PDF ---
                                     pdf_path = PDF_DIR / f"{safe_title}.pdf"
-                                    with open(pdf_path, "wb") as f:
-                                        f.write(img2pdf.convert(str(screenshot_path)))
-                                    # ✅ Delete PNG after converting
+                                    if image_to_pdf(screenshot_path, pdf_path):
+                                        console.print(f"[blue]Saved PDF: {pdf_path}[/blue]")
+                                        
+                                        # IMPORTANT: Save result to self.results list
+                                        relative_pdf_path = pdf_path.relative_to(BASE_DIR)
+                                        result_data = {
+                                            "Search Name": search_name,
+                                            "Entity Index": entity_idx,
+                                            "Doc Index": i + 1,
+                                            "Page Index": j + 1,
+                                            "PDF Viewer URL": popup.url,
+                                            "Real Estate PDF": str(relative_pdf_path)
+                                        }
+                                        self.results.append(result_data)
+                                        console.print(f"[green]Added to results: {result_data['Real Estate PDF']}[/green]")
+                                        
+                                    else:
+                                        console.print(f"[red]PDF conversion failed for {screenshot_path.name}[/red]")
+
+                                    # Delete PNG after conversion
                                     if screenshot_path.exists():
                                         screenshot_path.unlink()
 
-                                    console.print(f"[blue]Saved PDF: {pdf_path}[/blue]")
-                                    
-                                    # ✅ IMPORTANT: Save result to self.results list
-                                    relative_pdf_path = pdf_path.relative_to(BASE_DIR)
-                                    
-                                    result_data = {
-                                        "search_name": search_name,
-                                        "entity_index": entity_idx,
-                                        "doc_index": j + 1,
-                                        "pdf_viewer": popup.url,
-                                        "realestate_pdf": str(relative_pdf_path)
-                                    }
-                                    
-                                    # ✅ Add to results list for Excel
-                                    self.results.append(result_data)
-                                    
-                                    console.print(f"[green]Added to results: {result_data}[/green]")
-                                    
                                 else:
                                     console.print("[yellow]Canvas not found for screenshot[/yellow]")
-
+                            
                             except Exception as e:
-                                console.print(f"[red]Error saving PDF: {e}[/red]")
+                                console.print(f"[red]Error saving PDF for thumbnail {j+1}: {e}[/red]")
+                                traceback.print_exc()
 
                         except Exception as e:
                             console.print(f"[red]Error processing thumbnail {j+1}: {e}[/red]")
                             continue
 
                     # --- Close popup automatically ---
-                    if popup != self.page:
-                        try:
-                            await popup.close()
-                            await asyncio.sleep(1)
-                            console.print(f"[red]Popup closed for entity {entity_idx}[/red]")
-                        except Exception as e:
-                            console.print(f"[red]Error closing popup: {e}[/red]")
+                    if popup and popup != self.page:
+                        await popup.close()
+                        await asyncio.sleep(1)
+                        console.print(f"[green]Popup closed for doc {i+1}[/green]")
                 
                 except Exception as e:
                     console.print(f"[red]Error processing document {i+1}: {e}[/red]")
+                    traceback.print_exc()
                     continue
 
         except Exception as e:
@@ -423,26 +412,20 @@ class RealestateIndexScraper:
 
         try:
             df = pd.DataFrame(self.results)
-            df.drop_duplicates(subset=["PDF_viewer"], inplace=True)
+            # Drop duplicates based on a combination of columns
+            df.drop_duplicates(subset=["Search Name", "Real Estate PDF"], inplace=True)
             df.reset_index(drop=True, inplace=True)
 
-            # Ensure Real Estate Excel directory exists
             REAL_ESTATE_EXCEL_DIR.mkdir(exist_ok=True)
-
-            # Timestamp ke saath filename banayein
             ts = datetime.now().strftime("%Y%m%d_%H%M%S")
             final_filename = f"{filename_prefix}_{ts}.xlsx"
             final_path = REAL_ESTATE_EXCEL_DIR / final_filename
+            breakpoint()
 
-            # Excel file save karein
             with pd.ExcelWriter(final_path, engine='openpyxl') as writer:
                 df.to_excel(writer, sheet_name='Real Estate Data', index=False)
-                
-                # Optional: Worksheet ko format karein
                 workbook = writer.book
                 worksheet = writer.sheets['Real Estate Data']
-                
-                # Column widths auto-adjust karein
                 for column in worksheet.columns:
                     max_length = 0
                     column_letter = column[0].column_letter
@@ -456,9 +439,7 @@ class RealestateIndexScraper:
                     worksheet.column_dimensions[column_letter].width = adjusted_width
 
             console.print(f"[green]Real Estate Excel saved -> {final_path}[/green]")
-            
-            # File size bhi display karein
-            file_size = final_path.stat().st_size / 1024  # KB mein
+            file_size = final_path.stat().st_size / 1024
             console.print(f"[blue]File size: {file_size:.2f} KB[/blue]")
             console.print(f"[blue]Total records saved: {len(df)}[/blue]")
             
@@ -470,6 +451,8 @@ class RealestateIndexScraper:
             return None
 
     async def run(self):
+        playwright = None
+        browser = None
         try:
             playwright = await pw.async_playwright().start()
             browser = await playwright.chromium.launch(
@@ -496,28 +479,36 @@ class RealestateIndexScraper:
                     viewport=VIEWPORT,
                     device_scale_factor=1,
                     extra_http_headers=EXTRA_HEADERS,
+                    ignore_https_errors=True,
                 )
 
             self.page = await context.new_page()
-            if not STATE_FILE.exists() or not await self.page.query_selector("a:has-text('Logout')"):
+            
+            # Check if login is needed
+            await self.page.goto("https://apps.gsccca.org/", wait_until="domcontentloaded", timeout=30000)
+            if not await self.page.query_selector("a:has-text('Logout')"):
                 await self.login()
+                if not await self.page.query_selector("a:has-text('Logout')"):
+                    console.print("[red]Login failed. Exiting...[/red]")
+                    return
 
             await self.step2_open_realestate_search()
             await self.step3_fill_form_from_excel()
-
-            await browser.close()
-            await playwright.stop()
             
         except Exception as e:
             console.print(f"[red]Error in run method: {e}[/red]")
             traceback.print_exc()
+        finally:
+            if browser:
+                await browser.close()
+            if playwright:
+                await playwright.stop()
 
 async def main():
     scraper = RealestateIndexScraper()
     try:
         await scraper.run()
         
-        # Final results save karein
         if scraper.results:
             excel_path = scraper.save_results_to_excel()
             if excel_path:
@@ -526,6 +517,12 @@ async def main():
                 console.print("[bold red]✗ Failed to save Excel file[/bold red]")
         else:
             console.print("[yellow]No results to save[/yellow]")
+        if scraper.results:
+            print(f"Total results collected: {len(scraper.results)}")
+            scraper.save_results_to_excel()
+        else:
+            print("⚠️ No results found, nothing to save.")
+
             
     except KeyboardInterrupt:
         console.print("\n[bold yellow]Interrupted by user![/bold yellow]\n")

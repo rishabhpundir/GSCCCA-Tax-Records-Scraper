@@ -35,8 +35,8 @@ def my_view(request):
     logger.error("Something went wrong!")
     
 def dashboard(request):
-    lien_data = LienData.objects.all().order_by('-created_at')[:10]
-    realestate_data = RealEstateData.objects.all().order_by('-created_at')[:10]
+    lien_data = LienData.objects.all().order_by('-created_at')
+    realestate_data = RealEstateData.objects.all().order_by('-created_at')
     
     return render(request, 'dashboard.html', {
         'lien_data': lien_data,
@@ -65,11 +65,12 @@ def get_latest_data(request):
     data_type = request.GET.get('type', 'lien')
     
     if data_type == 'lien':
-        data = list(LienData.objects.all().order_by('-created_at')[:10].values())
+        data = list(LienData.objects.all().order_by('-created_at').values())
     else:
-        data = list(RealEstateData.objects.all().order_by('-created_at')[:10].values())
+        data = list(RealEstateData.objects.all().order_by('-created_at').values())
     
     return JsonResponse({'data': data})
+
 
 def run_lien_scraper_and_save():
     """Run lien scraper and save results to database"""

@@ -347,7 +347,7 @@ class GSCCCAScraper:
                 total = len(rp_links)
                 print(f"[INFO] Found {total} RP buttons on this page")
 
-                for i in range(min(2, total)):  
+                for i in range(total):  
                     try:
                         rp_links = await self.page.query_selector_all("a[href*='lienfinal']")
                         if i >= len(rp_links):

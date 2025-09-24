@@ -282,6 +282,7 @@ class GSCCCAScraper:
         while True:
             # Unique marker: first RP link href
             rp_links = await self.page.query_selector_all("a[href*='lienfinal']")
+            # breakpoint()
             if not rp_links:
                 print("[WARNING] No RP buttons found on this page")
                 break
@@ -295,7 +296,7 @@ class GSCCCAScraper:
             total = len(rp_links)
             print(f"[INFO] Found {total} RP buttons on this page")
 
-            for i in range(min(2, total)):  
+            for i in range(total):
                 try:
                     rp_links = await self.page.query_selector_all("a[href*='lienfinal']")
                     if i >= len(rp_links):
@@ -744,6 +745,7 @@ class GSCCCAScraper:
                 viewport=VIEWPORT,
                 device_scale_factor=1,
                 extra_http_headers=EXTRA_HEADERS,
+                ignore_https_errors=True,
             )
             self.page = await browser.new_page()
 
