@@ -420,7 +420,6 @@ class RealestateIndexScraper:
             ts = datetime.now().strftime("%Y%m%d_%H%M%S")
             final_filename = f"{filename_prefix}_{ts}.xlsx"
             final_path = REAL_ESTATE_EXCEL_DIR / final_filename
-            breakpoint()
 
             with pd.ExcelWriter(final_path, engine='openpyxl') as writer:
                 df.to_excel(writer, sheet_name='Real Estate Data', index=False)
@@ -505,11 +504,14 @@ class RealestateIndexScraper:
                 await playwright.stop()
 
 async def main():
+    """Main function to run the scraper."""
     scraper = RealestateIndexScraper()
     try:
         await scraper.run()
         
+        # Ab, sirf ek baar check karein aur save karein
         if scraper.results:
+            console.print(f"[bold green]Total results collected: {len(scraper.results)}[/bold green]")
             excel_path = scraper.save_results_to_excel()
             if excel_path:
                 console.print(f"[bold green]✓ Real Estate data successfully saved to: {excel_path}[/bold green]")
@@ -517,12 +519,7 @@ async def main():
                 console.print("[bold red]✗ Failed to save Excel file[/bold red]")
         else:
             console.print("[yellow]No results to save[/yellow]")
-        if scraper.results:
-            print(f"Total results collected: {len(scraper.results)}")
-            scraper.save_results_to_excel()
-        else:
             print("⚠️ No results found, nothing to save.")
-
             
     except KeyboardInterrupt:
         console.print("\n[bold yellow]Interrupted by user![/bold yellow]\n")
@@ -531,6 +528,7 @@ async def main():
         traceback.print_exc()
     finally:
         console.print("[bold green]Exiting...[/bold green]")
+
 
 if __name__ == "__main__":
     try:
@@ -542,3 +540,4 @@ if __name__ == "__main__":
         traceback.print_exc()
     finally:
         console.print("[bold green]Exiting...[/bold green]")
+        

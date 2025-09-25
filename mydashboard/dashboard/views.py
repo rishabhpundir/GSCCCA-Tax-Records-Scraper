@@ -167,42 +167,102 @@ def run_realestate_scraper_and_save():
         # Run the real estate scraper
         scraper = RealestateIndexScraper()
         asyncio.run(scraper.run())
-        
-        # Check if we have results but no file was saved
+
+        # Agar results hain, to pehle unhe database me save karo
         if hasattr(scraper, 'results') and scraper.results:
-            logger.info(f"Found {len(scraper.results)} results in memory, saving directly to database")
+            logger.info(f"Found {len(scraper.results)} results in memory, saving to database first.")
             
             saved_count = 0
             for result in scraper.results:
                 try:
-                    # Debug print - check what data we're getting
-                    logger.info(f"Real Estate Result: {result}")
-                    
-                    # Create or update record with new field names
+                    # 'search_name' ko 'Search Name' se map kiya
+                    search_name = result.get('Search Name', '')
+                    entity_index = int(result.get('Entity Index', 0) or 0)
+                    doc_index = int(result.get('Doc Index', 0) or 0)
+                    pdf_viewer_url = result.get('PDF Viewer URL', '')
+                    realestate_pdf_path = result.get('Real Estate PDF', '')
+
+                    # Django ORM se database mein data save karo
                     obj, created = RealEstateData.objects.update_or_create(
-                        search_name=result.get('search_name', '')[:255],
-                        entity_index=int(result.get('entity_index', 0) or 0),
-                        doc_index=int(result.get('doc_index', 0) or 0),
+                        search_name=search_name[:255],
+                        entity_index=entity_index,
+                        doc_index=doc_index,
                         defaults={
-                            'pdf_viewer': result.get('pdf_viewer', ''),  # Updated field name
-                            'realestate_pdf': result.get('final_url', ''),  # Map final_url to realestate_pdf
-                            
+                            'pdf_viewer': pdf_viewer_url,
+                            'realestate_pdf': realestate_pdf_path,
                         }
                     )
                     
                     if created:
                         saved_count += 1
-                        logger.info(f"Saved real estate record: {result.get('search_name', '')}")
+                        logger.debug(f"Saved new real estate record: {search_name}")
                         
                 except Exception as e:
-                    logger.error(f"Error saving real estate result: {e}")
+                    logger.error(f"Error saving real estate result to DB: {e}")
                     logger.debug(f"Problematic result: {result}")
                     traceback.print_exc()
-                    
-            logger.info(f"Saved {saved_count} real estate records directly from memory")
-            return
+
+            logger.info(f"Successfully saved {saved_count} real estate records to database.")
+
+            # Ab, database se data nikal kar Excel file mein save karo
+            excel_path = scraper.save_results_to_excel()
+            if excel_path:
+                logger.info(f"Real Estate data successfully saved to Excel at: {excel_path}")
+            else:
+                logger.error("Failed to save Excel file from scraper results.")
         
-        # File-based logic as fallback
+        else:
+            logger.warning("No real estate results found in scraper, nothing to save.")
+            
+    except Exception as e:
+        logger.error(f"Error running real estate scraper: {e}")
+        traceback.print_exc()
+
+        # Agar results hain, to pehle unhe database me save karo
+        if hasattr(scraper, 'results') and scraper.results:
+            logger.info(f"Found {len(scraper.results)} results in memory, saving to database first.")
+
+            saved_count = 0
+            for result in scraper.results:
+                try:
+                    # 'search_name' ko 'Search Name' se map kiya
+                    search_name = result.get('Search Name', '')
+                    entity_index = int(result.get('Entity Index', 0) or 0)
+                    doc_index = int(result.get('Doc Index', 0) or 0)
+                    pdf_viewer_url = result.get('PDF Viewer URL', '')
+                    realestate_pdf_path = result.get('Real Estate PDF', '')
+
+                    # Django ORM se database mein data save karo
+                    obj, created = RealEstateData.objects.update_or_create(
+                        search_name=search_name[:255],
+                        entity_index=entity_index,
+                        doc_index=doc_index,
+                        defaults={
+                            'pdf_viewer': pdf_viewer_url,
+                            'realestate_pdf': realestate_pdf_path,
+                        }
+                    )
+
+                    if created:
+                        saved_count += 1
+                        logger.debug(f"Saved new real estate record: {search_name}")
+
+                except Exception as e:
+                    logger.error(f"Error saving real estate result to DB: {e}")
+                    logger.debug(f"Problematic result: {result}")
+                    traceback.print_exc()
+
+            logger.info(f"Successfully saved {saved_count} real estate records to database.")
+
+            # Ab, database se data nikal kar Excel file mein save karo
+            excel_path = scraper.save_results_to_excel()
+            if excel_path:
+                logger.info(f"SUCCESS: Real Estate data successfully saved to Excel at: {excel_path}")
+            else:
+                logger.error("FAILED: Failed to save Excel file from scraper results.")
+
+        else:
+            logger.warning("No real estate results found in scraper, nothing to save.")
         possible_locations = [OUTPUT_DIR, SCRAPERS_DIR, Path(".")]
         possible_patterns = ["realestate_index*", "realestate*", "RealEstate*"]
         
