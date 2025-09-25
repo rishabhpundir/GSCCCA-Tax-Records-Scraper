@@ -21,11 +21,15 @@ Follow these steps to set up the project on your machine.
 
 First, download the project's zip file from GitHub and extract it to your desired location.
 
-#### **Step 2: Open Terminal**
+#### **Step 2: Added .env File**
+
+Create a new file named `.env` in the root directory of the project. This file will store your environment variables.
+
+#### **Step 3: Open Terminal**
 
 Navigate to the extracted folder, right-click, and select the "Open in Terminal" option.
 
-#### **Step 3: Run the Setup Script**
+#### **Step 4: Run the Setup Script**
 
 Execute the appropriate commands below, based on your operating system:
 
