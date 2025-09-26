@@ -39,167 +39,47 @@
       font-display: block;
       src: url("{% static 'fonts/fa-solid-900.woff2' %}") format('woff2');
     }
-    
-    .fa-solid:before {
-      font-family: 'Font Awesome 6 Free';
-      font-weight: 900;
-    }
+    .fa-solid:before { font-family: 'Font Awesome 6 Free'; font-weight: 900; }
   </style>
   
   <!-- Google Fonts -->
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   
   <style>
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-      font-family: 'Inter', sans-serif;
-    }
-    
-    body {
-      overflow-x: hidden;
-      background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
-      color: #e2e8f0;
-      min-height: 100vh;
-    }
-    
-    #particles-js {
-      position: fixed;
-      width: 100%;
-      height: 100%;
-      z-index: -1;
-    }
-    
-    .glass-card {
-      background: rgba(255, 255, 255, 0.07);
-      backdrop-filter: blur(12px);
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      border-radius: 16px;
-      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
-    }
-    
-    .scraper-btn {
-      position: relative;
-      overflow: hidden;
-      transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-      transform-style: preserve-3d;
-      perspective: 1000px;
-    }
-    
-    .scraper-btn::before {
-      content: '';
-      position: absolute;
-      top: 0;
-      left: -100%;
-      width: 100%;
-      height: 100%;
-      background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
-      transition: 0.5s;
-    }
-    
-    .scraper-btn:hover::before {
-      left: 100%;
-    }
-    
-    .scraper-btn:hover {
-      transform: translateY(-5px) scale(1.02);
-      box-shadow: 0 15px 30px rgba(0, 0, 0, 0.3);
-    }
-    
-    .scraper-btn:active {
-      transform: translateY(0) scale(0.98);
-    }
-    
-    .pulse {
-      animation: pulse 2s infinite;
-    }
-    
-    @keyframes pulse {
-      0% { box-shadow: 0 0 0 0 rgba(74, 222, 128, 0.7); }
-      70% { box-shadow: 0 0 0 15px rgba(74, 222, 128, 0); }
-      100% { box-shadow: 0 0 0 0 rgba(74, 222, 128, 0); }
-    }
-    
-    .floating {
-      animation: floating 6s ease-in-out infinite;
-    }
-    
-    @keyframes floating {
-      0%, 100% { transform: translateY(0); }
-      50% { transform: translateY(-10px); }
-    }
-    
-    .table-row {
-      transition: all 0.3s ease;
-      border-left: 3px solid transparent;
-    }
-    
-    .table-row:hover {
-      background: rgba(74, 222, 128, 0.1) !important;
-      border-left: 3px solid #4ade80;
-      transform: translateX(5px);
-    }
-    
-    .progress-bar {
-      height: 4px;
-      width: 0%;
-      background: linear-gradient(90deg, #4ade80, #3b82f6);
-      position: absolute;
-      bottom: 0;
-      left: 0;
-      border-radius: 0 0 8px 8px;
-      transition: width 0.3s ease;
-    }
-    
-    .fade-in {
-      animation: fadeIn 0.8s ease-out;
-    }
-    
-    @keyframes fadeIn {
-      from { opacity: 0; transform: translateY(20px); }
-      to { opacity: 1; transform: translateY(0); }
-    }
-    
-    .glow-text {
-      text-shadow: 0 0 20px rgba(74, 222, 128, 0.5);
-    }
-    
-    .data-counter {
-      font-variant-numeric: tabular-nums;
-      transition: all 0.5s ease;
-    }
-    
-    /* Custom scrollbar */
-    ::-webkit-scrollbar {
-      width: 8px;
-    }
-    
-    ::-webkit-scrollbar-track {
-      background: rgba(255, 255, 255, 0.05);
-      border-radius: 10px;
-    }
-    
-    ::-webkit-scrollbar-thumb {
-      background: linear-gradient(180deg, #4ade80, #3b82f6);
-      border-radius: 10px;
-    }
-    
-    ::-webkit-scrollbar-thumb:hover {
-      background: linear-gradient(180deg, #3b82f6, #4ade80);
-    }
+    * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Inter', sans-serif; }
+    body { overflow-x: hidden; background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); color: #e2e8f0; min-height: 100vh; }
+    #particles-js { position: fixed; width: 100%; height: 100%; z-index: -1; }
+    .glass-card { background: rgba(255,255,255,0.07); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; box-shadow: 0 8px 32px rgba(0,0,0,0.2); }
+    .scraper-btn { position: relative; overflow: hidden; transition: all .4s cubic-bezier(.175,.885,.32,1.275); transform-style: preserve-3d; perspective: 1000px; }
+    .scraper-btn::before { content:''; position:absolute; top:0; left:-100%; width:100%; height:100%; background:linear-gradient(90deg,transparent,rgba(255,255,255,.2),transparent); transition:.5s; }
+    .scraper-btn:hover::before { left:100%; }
+    .scraper-btn:hover { transform: translateY(-5px) scale(1.02); box-shadow: 0 15px 30px rgba(0,0,0,.3); }
+    .scraper-btn:active { transform: translateY(0) scale(.98); }
+    .pulse { animation: pulse 2s infinite; }
+    @keyframes pulse { 0%{box-shadow:0 0 0 0 rgba(74,222,128,.7)} 70%{box-shadow:0 0 0 15px rgba(74,222,128,0)} 100%{box-shadow:0 0 0 0 rgba(74,222,128,0)} }
+    .floating { animation: floating 6s ease-in-out infinite; }
+    @keyframes floating { 0%,100%{ transform:translateY(0)} 50%{ transform:translateY(-10px)} }
+    .table-row { transition: all .3s ease; border-left:3px solid transparent; }
+    .table-row:hover { background: rgba(74,222,128,.1) !important; border-left:3px solid #4ade80; transform: translateX(5px); }
+    .progress-bar { height:4px; width:0%; background:linear-gradient(90deg,#4ade80,#3b82f6); position:absolute; bottom:0; left:0; border-radius:0 0 8px 8px; transition: width .3s ease; }
+    .fade-in { animation: fadeIn .8s ease-out; }
+    @keyframes fadeIn { from{opacity:0; transform:translateY(20px)} to{opacity:1; transform:translateY(0)} }
+    .glow-text { text-shadow: 0 0 20px rgba(74,222,128,.5); }
+    .data-counter { font-variant-numeric: tabular-nums; transition: all .5s ease; }
+    ::-webkit-scrollbar { width: 8px; }
+    ::-webkit-scrollbar-track { background: rgba(255,255,255,.05); border-radius: 10px; }
+    ::-webkit-scrollbar-thumb { background: linear-gradient(180deg,#4ade80,#3b82f6); border-radius: 10px; }
+    ::-webkit-scrollbar-thumb:hover { background: linear-gradient(180deg,#3b82f6,#4ade80); }
+    .table-container { max-height: 600px; overflow-y: auto; }
+    .table-header { position: sticky; top: 0; z-index: 10; }
 
-    /* Table styling improvements */
-    .table-container {
-      max-height: 600px;
-      overflow-y: auto;
-    }
-    
-    .table-header {
-      position: sticky;
-      top: 0;
-      z-index: 10;
-    }
+    /* Modal helpers */
+    .modal-hidden { display: none; }
+    .modal-show { display: block; }
+    .modal-enter { transform: translateY(12px) scale(.98); opacity: 0; }
+    .modal-enter-active { transform: translateY(0) scale(1); opacity: 1; transition: all .2s ease; }
+    .backdrop-enter { opacity: 0; }
+    .backdrop-enter-active { opacity: 1; transition: opacity .2s ease; }
   </style>
 </head>
 <body class="antialiased">
@@ -234,23 +114,21 @@
 
     <!-- Stats Cards -->
     <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
-      <div class="glass-card p-6 text-center fade-in" style="animation-delay: 0.1s;">
+      <div class="glass-card p-6 text-center fade-in" style="animation-delay: .1s;">
         <div class="w-14 h-14 mx-auto bg-green-500/20 rounded-xl flex items-center justify-center mb-4">
           <i class="fas fa-file-contract text-green-400 text-2xl"></i>
         </div>
         <h3 class="text-3xl font-bold data-counter" id="lienCount">{{ lien_data|length }}</h3>
         <p class="text-gray-400 mt-2">Lien Records</p>
       </div>
-      
-      <div class="glass-card p-6 text-center fade-in" style="animation-delay: 0.2s;">
+      <div class="glass-card p-6 text-center fade-in" style="animation-delay: .2s;">
         <div class="w-14 h-14 mx-auto bg-blue-500/20 rounded-xl flex items-center justify-center mb-4">
           <i class="fas fa-home text-blue-400 text-2xl"></i>
         </div>
         <h3 class="text-3xl font-bold data-counter" id="realestateCount">{{ realestate_data|length }}</h3>
         <p class="text-gray-400 mt-2">Real Estate Records</p>
       </div>
-      
-      <div class="glass-card p-6 text-center fade-in" style="animation-delay: 0.3s;">
+      <div class="glass-card p-6 text-center fade-in" style="animation-delay: .3s;">
         <div class="w-14 h-14 mx-auto bg-purple-500/20 rounded-xl flex items-center justify-center mb-4">
           <i class="fas fa-bolt text-purple-400 text-2xl"></i>
         </div>
@@ -267,13 +145,15 @@
       </h2>
       
       <div class="flex flex-col md:flex-row justify-center gap-6">
-        <button onclick="startScraper('lien')" class="scraper-btn group">
+        <!-- Lien button now opens modal -->
+        <button onclick="openModal('lien')" class="scraper-btn group">
           <div class="bg-gradient-to-br from-green-500 to-green-600 px-8 py-4 rounded-xl text-lg font-semibold text-white flex items-center justify-center">
             <i class="fas fa-play mr-3 transform group-hover:scale-110 transition-transform"></i>
             <span>Start Lien Scraper</span>
           </div>
         </button>
         
+        <!-- Real Estate unchanged -->
         <button onclick="startScraper('realestate')" class="scraper-btn group">
           <div class="bg-gradient-to-br from-blue-500 to-blue-600 px-8 py-4 rounded-xl text-lg font-semibold text-white flex items-center justify-center">
             <i class="fas fa-play mr-3 transform group-hover:scale-110 transition-transform"></i>
@@ -349,8 +229,6 @@
                   <td class="p-4">{{ item.instrument|default:"Not available" }}</td>
                   <td class="p-4">{{ item.book|default:"Not available" }}</td>
                   <td class="p-4">{{ item.page|default:"Not available" }}</td>
-                  
-                  <!-- View PDF button -->
                   <td class="p-4">
                     {% if item.pdf_document_url and item.pdf_document_url != "Not available" %}
                     <a href="{{ item.pdf_document_url }}" target="_blank" 
@@ -363,8 +241,6 @@
                     <span class="text-gray-500 text-sm">Not available</span>
                     {% endif %}
                   </td>
-                  
-                  <!-- Excel Download column -->
                   <td class="p-4">
                     {% if item.pdf_document_url and item.pdf_document_url != "Not available" %}
                     <button onclick="downloadLienExcel('{{ item.pdf_document_url }}')" 
@@ -438,7 +314,6 @@
                         {{ item.doc_index|default:"0" }}
                       </span>
                     </td>
-                    
                     <td class="p-4">
                       {% if item.pdf_viewer and item.pdf_viewer != "Not available" and item.pdf_viewer != "N/A" %}
                       <a href="{{ item.pdf_viewer }}" target="_blank" 
@@ -451,8 +326,6 @@
                       <span class="text-gray-500 text-sm">Not available</span>
                       {% endif %}
                     </td>
-                    
-                    <!-- Real Estate Excel Download -->
                     <td class="p-4">
                       {% if item.search_name and item.search_name != "Not available" %}
                       <button onclick="downloadRealEstateExcel('{{ item.search_name }}')" 
@@ -512,6 +385,305 @@
     </footer>
   </div>
 
+  <!-- =========================
+       Lien Scraper Modal
+  ========================== -->
+  <div id="lienModal" class="fixed inset-0 z-[100] modal-hidden" aria-hidden="true" aria-labelledby="lienModalTitle" role="dialog">
+    <!-- Backdrop -->
+    <div id="lienModalBackdrop" class="absolute inset-0 bg-black/60" onclick="closeModal()"></div>
+
+    <!-- Panel -->
+    <div class="relative z-[101] min-h-screen flex items-center justify-center p-4">
+      <div id="lienModalPanel" class="w-full max-w-2xl glass-card rounded-2xl shadow-2xl modal-enter">
+        <!-- Header -->
+        <div class="px-6 py-4 border-b border-white/10 flex items-center justify-between">
+          <div class="flex items-center gap-3">
+            <span class="w-9 h-9 rounded-lg bg-green-500/20 text-green-300 flex items-center justify-center">
+              <i class="fa-solid fa-file-contract"></i>
+            </span>
+            <div>
+              <h3 id="lienModalTitle" class="text-xl font-semibold">Start Lien Scraper</h3>
+              <p class="text-xs text-gray-400">Fill the search parameters and click <b>Start Scraping</b></p>
+            </div>
+          </div>
+          <button type="button" class="text-gray-400 hover:text-white" onclick="closeModal()" aria-label="Close modal">
+            <i class="fa-solid fa-xmark text-xl"></i>
+          </button>
+        </div>
+
+        <!-- Body -->
+        <form id="lienForm" class="px-6 py-5 space-y-4" onsubmit="submitLienForm(event)">
+          <div id="lienFormFields" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <!-- Your updated fields -->
+            <div class="md:col-span-2">
+              <label class="block text-sm text-gray-300 mb-1">County</label>
+              <select name="county" class="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500">
+                <option value="">-- Select County --</option>
+                <option value="-1">All Participating Counties</option>
+            <option value="1">APPLING</option>
+            <option value="2">ATKINSON</option>
+            <option value="3">BACON</option>
+            <option value="4">BAKER</option>
+            <option value="5">BALDWIN</option>
+            <option value="6">BANKS</option>
+            <option value="7">BARROW</option>
+            <option value="8">BARTOW</option>
+            <option value="9">BEN HILL</option>
+            <option value="10">BERRIEN</option>
+            <option value="11">BIBB</option>
+            <option value="12">BLECKLEY</option>
+            <option value="13">BRANTLEY</option>
+            <option value="14">BROOKS</option>
+            <option value="15">BRYAN</option>
+            <option value="16">BULLOCH</option>
+            <option value="17">BURKE</option>
+            <option value="18">BUTTS</option>
+            <option value="19">CALHOUN</option>
+            <option value="20">CAMDEN</option>
+            <option value="21">CANDLER</option>
+            <option value="22">CARROLL</option>
+            <option value="23">CATOOSA</option>
+            <option value="24">CHARLTON</option>
+            <option value="25">CHATHAM</option>
+            <option value="26">CHATTAHOOCHEE</option>
+            <option value="27">CHATTOOGA</option>
+            <option value="28">CHEROKEE</option>
+            <option value="29">CLARKE</option>
+            <option value="30">CLAY</option>
+            <option value="31">CLAYTON</option>
+            <option value="32">CLINCH</option>
+            <option value="33">COBB</option>
+            <option value="34">COFFEE</option>
+            <option value="35">COLQUITT</option>
+            <option value="36">COLUMBIA</option>
+            <option value="37">COOK</option>
+            <option value="38">COWETA</option>
+            <option value="39">CRAWFORD</option>
+            <option value="40">CRISP</option>
+            <option value="41">DADE</option>
+            <option value="42">DAWSON</option>
+            <option value="43">DECATUR</option>
+            <option value="44">DEKALB</option>
+            <option value="45">DODGE</option>
+            <option value="46">DOOLY</option>
+            <option value="47">DOUGHERTY</option>
+            <option value="48">DOUGLAS</option>
+            <option value="49">EARLY</option>
+            <option value="50">ECHOLS</option>
+            <option value="51">EFFINGHAM</option>
+            <option value="52">ELBERT</option>
+            <option value="53">EMANUEL</option>
+            <option value="54">EVANS</option>
+            <option value="55">FANNIN</option>
+            <option value="56">FAYETTE</option>
+            <option value="57">FLOYD</option>
+            <option value="58">FORSYTH</option>
+            <option value="59">FRANKLIN</option>
+            <option value="60">FULTON</option>
+            <option value="61">GILMER</option>
+            <option value="62">GLASCOCK</option>
+            <option value="63">GLYNN</option>
+            <option value="64">GORDON</option>
+            <option value="65">GRADY</option>
+            <option value="66">GREENE</option>
+            <option value="67">GWINNETT</option>
+            <option value="68">HABERSHAM</option>
+            <option value="69">HALL</option>
+            <option value="70">HANCOCK</option>
+            <option value="71">HARALSON</option>
+            <option value="72">HARRIS</option>
+            <option value="73">HART</option>
+            <option value="74">HEARD</option>
+            <option value="75">HENRY</option>
+            <option value="76">HOUSTON</option>
+            <option value="77">IRWIN</option>
+            <option value="78">JACKSON</option>
+            <option value="79">JASPER</option>
+            <option value="80">JEFF DAVIS</option>
+            <option value="81">JEFFERSON</option>
+            <option value="82">JENKINS</option>
+            <option value="83">JOHNSON</option>
+            <option value="84">JONES</option>
+            <option value="85">LAMAR</option>
+            <option value="86">LANIER</option>
+            <option value="87">LAURENS</option>
+            <option value="88">LEE</option>
+            <option value="89">LIBERTY</option>
+            <option value="90">LINCOLN</option>
+            <option value="91">LONG</option>
+            <option value="92">LOWNDES</option>
+            <option value="93">LUMPKIN</option>
+            <option value="94">MACON</option>
+            <option value="95">MADISON</option>
+            <option value="96">MARION</option>
+            <option value="97">MCDUFFIE</option>
+            <option value="98">MCINTOSH</option>
+            <option value="99">MERIWETHER</option>
+            <option value="100">MILLER</option>
+            <option value="101">MITCHELL</option>
+            <option value="102">MONROE</option>
+            <option value="103">MONTGOMERY</option>
+            <option value="104">MORGAN</option>
+            <option value="105">MURRAY</option>
+            <option value="106">MUSCOGEE</option>
+            <option value="107">NEWTON</option>
+            <option value="108">OCONEE</option>
+            <option value="109">OGLETHORPE</option>
+            <option value="110">PAULDING</option>
+            <option value="111">PEACH</option>
+            <option value="112">PICKENS</option>
+            <option value="113">PIERCE</option>
+            <option value="114">PIKE</option>
+            <option value="115">POLK</option>
+            <option value="116">PULASKI</option>
+            <option value="117">PUTNAM</option>
+            <option value="118">QUITMAN</option>
+            <option value="119">RABUN</option>
+            <option value="120">RANDOLPH</option>
+            <option value="121">RICHMOND</option>
+            <option value="122">ROCKDALE</option>
+            <option value="123">SCHLEY</option>
+            <option value="124">SCREVEN</option>
+            <option value="125">SEMINOLE</option>
+            <option value="126">SPALDING</option>
+            <option value="127">STEPHENS</option>
+            <option value="128">STEWART</option>
+            <option value="129">SUMTER</option>
+            <option value="130">TALBOT</option>
+            <option value="131">TALIAFERRO</option>
+            <option value="132">TATTNALL</option>
+            <option value="133">TAYLOR</option>
+            <option value="134">TELFAIR</option>
+            <option value="135">TERRELL</option>
+            <option value="136">THOMAS</option>
+            <option value="137">TIFT</option>
+            <option value="138">TOOMBS</option>
+            <option value="139">TOWNS</option>
+            <option value="140">TREUTLEN</option>
+            <option value="141">TROUP</option>
+            <option value="142">TURNER</option>
+            <option value="143">TWIGGS</option>
+            <option value="144">UNION</option>
+            <option value="145">UPSON</option>
+            <option value="146">WALKER</option>
+            <option value="147">WALTON</option>
+            <option value="148">WARE</option>
+            <option value="149">WARREN</option>
+            <option value="150">WASHINGTON</option>
+            <option value="151">WAYNE</option>
+            <option value="152">WEBSTER</option>
+            <option value="153">WHEELER</option>
+            <option value="154">WHITE</option>
+            <option value="155">WHITFIELD</option>
+            <option value="156">WILCOX</option>
+            <option value="157">WILKES</option>
+            <option value="158">WILKINSON</option>
+            <option value="159">WORTH</option>
+              </select>
+            </div>
+
+            <div class="md:col-span-2">
+              <label class="block text-sm text-gray-300 mb-1">Instrument</label>
+              <select name="instrument" class="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500">
+                <option value="">-- Any --</option>
+                <option value="1">AFFIDAVIT</option>
+                <option value="13">Agreement</option>
+                <option value="14">Assignment</option>
+                <option value="52">Cancellation</option>
+                <option value="2" selected>FIFA</option>
+                <option value="3">Federal Tax Lien</option>
+                <option value="54">Levy</option>
+                <option value="8">Lien</option>
+                <option value="9">Lis Pendens</option>
+                <option value="6">Miscellaneous</option>
+                <option value="53">Mechanics and Materialmens Lien</option>
+                <option value="10">Notice</option>
+                <option value="7">Order</option>
+                <option value="11">Preliminary Notice of Lien</option>
+                <option value="12">Personal Property Lien</option>
+                <option value="4">Release</option>
+              </select>
+            </div>
+
+            <div class="md:col-span-2">
+              <label for="txtPartyType" class="block text-sm text-gray-300 mb-1">Party Type</label>
+              <select id="txtPartyType" name="party_type" class="w-full p-2 rounded-lg bg-gray-800 border border-gray-700 text-white focus:ring-green-500 focus:border-green-500">
+                <option value="2" selected>All Parties</option>
+                <option value="1">Direct Party (Debtor)</option>
+                <option value="0">Reverse Party (Claimant)</option>
+              </select>
+            </div>
+
+            <div class="md:col-span-2">
+              <label class="block text-sm text-gray-300 mb-1">Include neighboring counties in the search?</label>
+              <div class="flex items-center space-x-4">
+                <label class="flex items-center">
+                  <input class="w-4 h-4 text-green-500 bg-gray-700 border-gray-600 focus:ring-green-500" type="radio" id="bolIncludeYes" name="include_counties" value="1">
+                  <span class="ml-2 text-sm text-gray-300">Yes</span>
+                </label>
+                <label class="flex items-center">
+                  <input class="w-4 h-4 text-green-500 bg-gray-700 border-gray-600 focus:ring-green-500" type="radio" id="bolIncludeNo" name="include_counties" value="0" checked>
+                  <span class="ml-2 text-sm text-gray-300">No</span>
+                </label>
+              </div>
+            </div>
+
+            <div class="md:col-span-2">
+              <label for="txtSearchName" class="block text-sm font-semibold mb-2 text-gray-300">Search Name</label>
+              <input type="text" id="txtSearchName" name="search_name" maxlength="70" class="w-full p-2 rounded-lg bg-gray-800 border border-gray-700 text-white placeholder-gray-500 focus:ring-green-500 focus:border-green-500" placeholder="Last name, First name">
+              <div class="text-xs text-gray-500 mt-1">(For individuals, enter last name, first name.)</div>
+            </div>
+
+            <div class="md:col-span-2">
+              <div>
+                <label for="txtFromDate" class="block text-sm font-semibold mb-2 text-gray-300">Display Results From (optional)</label>
+                <input type="text" id="txtFromDate" name="from_date" maxlength="10" class="w-full p-2 rounded-lg bg-gray-800 border border-gray-700 text-white placeholder-gray-500 focus:ring-green-500 focus:border-green-500" placeholder="mm/dd/yyyy">
+              </div>
+              <div>
+                <label for="txtToDate" class="block text-sm font-semibold mb-2 text-gray-300">Through</label>
+                <input type="text" id="txtToDate" name="to_date" maxlength="10" class="w-full p-2 rounded-lg bg-gray-800 border border-gray-700 text-white placeholder-gray-500 focus:ring-green-500 focus:border-green-500" placeholder="mm/dd/yyyy">
+              </div>
+            </div>
+
+            <div class="md:col-span-2">
+              <label for="MaxRows" class="block text-sm font-semibold mb-2 text-gray-300">Display (results per page)</label>
+              <select id="MaxRows" name="max_rows" class="w-fit p-2 rounded-lg bg-gray-800 border border-gray-700 text-white focus:ring-green-500 focus:border-green-500">
+                <option value="5">5</option>
+                <option value="10">10</option>
+                <option value="25">25</option>
+                <option value="50">50</option>
+                <option value="75">75</option>
+                <option value="100" selected>100</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="md:col-span-2">
+              <label for="TableType" class="block text-sm font-semibold mb-2 text-gray-300">Table Display Type</label>
+              <select id="TableType" name="table_type" class="w-fit p-2 rounded-lg bg-gray-800 border border-gray-700 text-white focus:ring-green-500 focus:border-green-500">
+                  <option value="1" selected>Regular</option>
+                  <option value="2">1 Line</option>
+                  <option value="3">1 Line No Wrap</option>
+              </select>
+          </div>
+
+          <!-- Footer actions -->
+          <div class="pt-3 flex items-center justify-end gap-3">
+            <button type="button" class="px-4 py-2 rounded-lg border border-white/10 text-gray-300 hover:bg-white/5" onclick="closeModal()">
+              Cancel
+            </button>
+            <button type="submit" class="px-4 py-2 rounded-lg bg-gradient-to-r from-green-500 to-green-600 text-white font-medium hover:from-green-600 hover:to-green-700">
+              <i class="fa-solid fa-play mr-2"></i> Start Scraping
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+  <!-- =========================
+       /Modal
+  ========================== -->
+
   <!-- JavaScript -->
   <script src="https://cdn.jsdelivr.net/particles.js/2.0.0/particles.min.js"></script>
   <script>
@@ -523,31 +695,10 @@
         shape: { type: "circle" },
         opacity: { value: 0.5, random: true },
         size: { value: 3, random: true },
-        line_linked: {
-          enable: true,
-          distance: 150,
-          color: "#3b82f6",
-          opacity: 0.4,
-          width: 1
-        },
-        move: {
-          enable: true,
-          speed: 2,
-          direction: "none",
-          random: true,
-          straight: false,
-          out_mode: "out",
-          bounce: false
-        }
+        line_linked: { enable: true, distance: 150, color: "#3b82f6", opacity: 0.4, width: 1 },
+        move: { enable: true, speed: 2, direction: "none", random: true, straight: false, out_mode: "out", bounce: false }
       },
-      interactivity: {
-        detect_on: "canvas",
-        events: {
-          onhover: { enable: true, mode: "repulse" },
-          onclick: { enable: true, mode: "push" },
-          resize: true
-        }
-      },
+      interactivity: { detect_on: "canvas", events: { onhover: { enable: true, mode: "repulse" }, onclick: { enable: true, mode: "push" }, resize: true } },
       retina_detect: true
     });
 
@@ -559,14 +710,98 @@
 
     document.addEventListener('DOMContentLoaded', function() {
       console.log('Page loaded, displaying all data without limits');
-      
-      // Animate counters
       animateCounters();
-      
-      // Show total counts in console for verification
       console.log('Total Lien Records:', {{ lien_data|length }});
       console.log('Total Real Estate Records:', {{ realestate_data|length }});
+      // ESC to close modal
+      document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModal(); });
     });
+
+    /* -------- Modal controls ---------- */
+    function openModal(type) {
+      if (type !== 'lien') return; // we only modal-ize lien
+      const root = document.getElementById('lienModal');
+      const panel = document.getElementById('lienModalPanel');
+      const backdrop = document.getElementById('lienModalBackdrop');
+
+      root.classList.remove('modal-hidden');
+      root.classList.add('modal-show');
+      // animate
+      panel.classList.remove('modal-enter'); // reset
+      void panel.offsetWidth; // reflow
+      panel.classList.add('modal-enter-active');
+
+      backdrop.classList.add('backdrop-enter-active');
+
+      // accessibility + scroll lock
+      root.setAttribute('aria-hidden', 'false');
+      document.body.style.overflow = 'hidden';
+      // focus first field
+      setTimeout(() => {
+        const first = document.querySelector('#lienForm input, #lienForm select, #lienForm textarea, #lienForm button');
+        if (first) first.focus();
+      }, 50);
+    }
+
+    function closeModal() {
+      const root = document.getElementById('lienModal');
+      const panel = document.getElementById('lienModalPanel');
+      const backdrop = document.getElementById('lienModalBackdrop');
+
+      // reverse-ish animation
+      panel.classList.remove('modal-enter-active');
+      panel.classList.add('modal-enter');
+      backdrop.classList.remove('backdrop-enter-active');
+
+      setTimeout(() => {
+        root.classList.remove('modal-show');
+        root.classList.add('modal-hidden');
+        root.setAttribute('aria-hidden', 'true');
+        document.body.style.overflow = '';
+      }, 180);
+    }
+
+    // ========= CHANGED: send FormData instead of JSON =========
+    function submitLienForm(e) {
+      e.preventDefault();
+      const formEl = document.getElementById('lienForm');
+
+      // Build FormData from form & append scraper_type
+      const fd = new FormData(formEl);
+      fd.append('scraper_type', 'lien');
+
+      showStatus('Starting lien scraper...', 'blue');
+
+      // disable buttons while starting
+      const buttons = document.querySelectorAll('button');
+      buttons.forEach(btn => btn.disabled = true);
+      isLienScraperRunning = true;
+      startPolling();
+
+      fetch('/start-scraper/', {
+        method: 'POST',
+        // IMPORTANT: do NOT set Content-Type; browser sets multipart/form-data with boundary
+        headers: {
+          'X-CSRFToken': getCookie('csrftoken')
+        },
+        body: fd
+      })
+      .then(r => r.json())
+      .then(resp => {
+        showStatus(resp.status || 'Lien scraper started successfully', 'green');
+        closeModal();
+      })
+      .catch(err => {
+        console.error(err);
+        showStatus('Error starting lien scraper: ' + err, 'red');
+        isLienScraperRunning = false;
+        stopPolling();
+      })
+      .finally(() => {
+        buttons.forEach(btn => btn.disabled = false);
+      });
+    }
+    // ========= /CHANGED =========
 
     function animateCounters() {
       const counters = document.querySelectorAll('.data-counter');
@@ -578,12 +813,8 @@
         const increment = target / steps;
         const timer = setInterval(() => {
           current += increment;
-          if (current >= target) {
-            counter.innerText = target;
-            clearInterval(timer);
-          } else {
-            counter.innerText = Math.round(current);
-          }
+          if (current >= target) { counter.innerText = target; clearInterval(timer); }
+          else { counter.innerText = Math.round(current); }
         }, duration / steps);
       });
     }
@@ -591,8 +822,6 @@
     function loadInitialData() {
       console.log('Loading all data without limits...');
       showStatus('Loading all available data...', 'blue');
-      
-      // Fetch all lien data without limits
       fetch(`/get-latest-data/?type=lien&limit=0`)
         .then(response => response.json())
         .then(data => {
@@ -601,8 +830,6 @@
           console.log('Lien data loaded:', data.data?.length, 'records');
         })
         .catch(error => console.error('Error loading lien data:', error));
-      
-      // Fetch all real estate data without limits
       fetch(`/get-latest-data/?type=realestate&limit=0`)
         .then(response => response.json())
         .then(data => {
@@ -616,68 +843,33 @@
 
     function startScraper(type) {
       console.log(`Starting ${type} scraper...`);
-      
       const buttons = document.querySelectorAll('button');
       buttons.forEach(btn => btn.disabled = true);
-      
-      if (type === 'lien') {
-        isLienScraperRunning = true;
-      } else {
-        isRealEstateScraperRunning = true;
-      }
-      
-      if (isLienScraperRunning || isRealEstateScraperRunning) {
-        startPolling();
-      }
-      
+      if (type === 'lien') { isLienScraperRunning = true; } else { isRealEstateScraperRunning = true; }
+      if (isLienScraperRunning || isRealEstateScraperRunning) startPolling();
       showStatus(`Starting ${type} scraper...`, 'blue');
-      
       fetch('/start-scraper/', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-CSRFToken': getCookie('csrftoken')
-        },
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken') },
         body: JSON.stringify({scraper_type: type})
       })
       .then(response => response.json())
-      .then(data => {
-        showStatus(data.status || 'Scraper started successfully', 'green');
-      })
+      .then(data => { showStatus(data.status || 'Scraper started successfully', 'green'); })
       .catch(error => {
         showStatus('Error starting scraper: ' + error, 'red');
         buttons.forEach(btn => btn.disabled = false);
-        
-        if (type === 'lien') {
-          isLienScraperRunning = false;
-        } else {
-          isRealEstateScraperRunning = false;
-        }
-        
-        if (!isLienScraperRunning && !isRealEstateScraperRunning) {
-          stopPolling();
-        }
+        if (type === 'lien') { isLienScraperRunning = false; } else { isRealEstateScraperRunning = false; }
+        if (!isLienScraperRunning && !isRealEstateScraperRunning) { stopPolling(); }
       });
     }
     
     function startPolling() {
       console.log('Starting polling for all data...');
-      
-      if (pollingInterval) {
-        clearInterval(pollingInterval);
-        pollingInterval = null;
-      }
-      
+      if (pollingInterval) { clearInterval(pollingInterval); pollingInterval = null; }
       pollingInterval = setInterval(() => {
         console.log('Polling for all data without limits...');
-        
-        if (isLienScraperRunning) {
-          updateTable('lien');
-        }
-        if (isRealEstateScraperRunning) {
-          updateTable('realestate');
-        }
-        
+        if (isLienScraperRunning) updateTable('lien');
+        if (isRealEstateScraperRunning) updateTable('realestate');
         if (!isLienScraperRunning && !isRealEstateScraperRunning) {
           console.log('No scrapers running, stopping polling...');
           stopPolling();
@@ -688,52 +880,31 @@
     }
     
     function stopPolling() {
-      if (pollingInterval) {
-        clearInterval(pollingInterval);
-        pollingInterval = null;
-        console.log('Polling stopped');
-      }
+      if (pollingInterval) { clearInterval(pollingInterval); pollingInterval = null; console.log('Polling stopped'); }
     }
     
     function updateTable(type) {
       console.log(`Updating ${type} table with all data...`);
-      
-      // Use limit=0 to get all records
       fetch(`/get-latest-data/?type=${type}&limit=0`)
       .then(response => response.json())
       .then(data => {
-        if (type === 'lien') {
-          updateTableUI(type, data);
-          updateCounter('lienLiveCount', data.data?.length || 0);
-        } else {
-          updateRealEstateTableUI(data);
-          updateCounter('realestateLiveCount', data.data?.length || 0);
-        }
+        if (type === 'lien') { updateTableUI(type, data); updateCounter('lienLiveCount', data.data?.length || 0); }
+        else { updateRealEstateTableUI(data); updateCounter('realestateLiveCount', data.data?.length || 0); }
         console.log(`Updated ${type} table with ${data.data?.length || 0} records`);
       })
-      .catch(error => {
-        console.error('Error fetching data:', error);
-      });
+      .catch(error => { console.error('Error fetching data:', error); });
     }
     
     function updateTableUI(type, data) {
       const tbodyId = type === 'lien' ? 'lienTable' : 'realestateTable';
       const tbody = document.getElementById(tbodyId);
-      
-      if (!tbody) {
-          console.error(`tbody ${tbodyId} not found!`);
-          return;
-      }
-      
+      if (!tbody) { console.error(`tbody ${tbodyId} not found!`); return; }
       tbody.innerHTML = '';
-      
       if (data.data && data.data.length > 0) {
           console.log(`Displaying ${data.data.length} records for ${type}`);
-          
           data.data.forEach(item => {
               const row = document.createElement('tr');
               row.className = 'table-row hover:bg-gray-700/20';
-              
               if (type === 'lien') {
                   row.innerHTML = `
                       <td class="p-4">${escapeHtml(item.direct_party_debtor || 'Not available')}</td>
@@ -744,7 +915,6 @@
                       <td class="p-4">${escapeHtml(item.instrument || 'Not available')}</td>
                       <td class="p-4">${escapeHtml(item.book || 'Not available')}</td>
                       <td class="p-4">${escapeHtml(item.page || 'Not available')}</td>
-                      
                       <td class="p-4">
                           ${item.pdf_document_url && item.pdf_document_url !== "Not available" ? `
                               <a href="${escapeHtml(item.pdf_document_url)}" target="_blank" 
@@ -755,7 +925,6 @@
                               </a>
                           ` : '<span class="text-gray-500 text-sm">Not available</span>'}
                       </td>
-                      
                       <td class="p-4">
                           ${item.pdf_document_url && item.pdf_document_url !== "Not available" ? `
                               <button onclick="downloadLienExcel('${escapeHtml(item.pdf_document_url)}')" 
@@ -768,7 +937,6 @@
                       </td>
                   `;
               }
-              
               tbody.appendChild(row);
           });
       } else {
@@ -780,25 +948,14 @@
     function updateRealEstateTableUI(data) {
       const tbody = document.getElementById('realestateTable');
       if (!tbody) return;
-      
       tbody.innerHTML = '';
-      
       if (data.data && data.data.length > 0) {
           console.log(`Displaying ${data.data.length} real estate records`);
-          
           data.data.forEach(item => {
               const row = document.createElement('tr');
               row.className = 'table-row hover:bg-gray-700/20';
-              
-              const hasPdfViewer = item.pdf_viewer && 
-                                  item.pdf_viewer !== "Not available" && 
-                                  item.pdf_viewer !== "N/A" &&
-                                  item.pdf_viewer !== "";
-              
-              const hasSearchName = item.search_name && 
-                                   item.search_name !== "Not available" && 
-                                   item.search_name !== "";
-              
+              const hasPdfViewer = item.pdf_viewer && item.pdf_viewer !== "Not available" && item.pdf_viewer !== "N/A" && item.pdf_viewer !== "";
+              const hasSearchName = item.search_name && item.search_name !== "Not available" && item.search_name !== "";
               row.innerHTML = `
                   <td class="p-4 font-medium">${escapeHtml(item.search_name || 'Not available')}</td>
                   <td class="p-4 text-center">
@@ -811,7 +968,6 @@
                           ${escapeHtml(item.doc_index || '0')}
                       </span>
                   </td>
-                  
                   <td class="p-4">
                       ${hasPdfViewer ? `
                           <a href="${escapeHtml(item.pdf_viewer)}" target="_blank" 
@@ -822,7 +978,6 @@
                           </a>
                       ` : '<span class="text-gray-500 text-sm">Not available</span>'}
                   </td>
-
                   <td class="p-4">
                       ${hasSearchName ? `
                           <button onclick="downloadRealEstateExcel('${escapeHtml(item.search_name)}')" 
@@ -834,17 +989,10 @@
                       ` : '<span class="text-gray-500 text-sm">N/A</span>'}
                   </td>
               `;
-              
               tbody.appendChild(row);
           });
       } else {
-          tbody.innerHTML = `
-              <tr class="table-row">
-                  <td colspan="5" class="p-4 text-center text-gray-500">
-                      No real estate data available. Run the Real Estate Scraper first.
-              </td>
-              </tr>
-          `;
+          tbody.innerHTML = `<tr class="table-row"><td colspan="5" class="p-4 text-center text-gray-500">No real estate data available. Run the Real Estate Scraper first.</td></tr>`;
       }
     }
     
@@ -855,17 +1003,10 @@
         const duration = 1000;
         const steps = 30;
         const increment = (count - current) / steps;
-        
         let step = 0;
         const timer = setInterval(() => {
-          step++;
-          current += increment;
-          element.innerText = Math.round(current);
-          
-          if (step >= steps) {
-            element.innerText = count;
-            clearInterval(timer);
-          }
+          step++; current += increment; element.innerText = Math.round(current);
+          if (step >= steps) { element.innerText = count; clearInterval(timer); }
         }, duration / steps);
       }
     }
@@ -874,171 +1015,90 @@
       const statusMessage = document.getElementById('statusMessage');
       const statusText = document.getElementById('statusText');
       const progressBar = statusMessage.querySelector('.progress-bar');
-      
       statusText.textContent = message;
       statusMessage.className = 'glass-card p-4 mb-8 text-center transition-all duration-500 opacity-100 flex items-center justify-center';
-      
-      if (type === 'green') {
-        statusMessage.classList.add('text-green-400');
-        progressBar.style.background = 'linear-gradient(90deg, #4ade80, #3b82f6)';
-      } else if (type === 'red') {
-        statusMessage.classList.add('text-red-400');
-        progressBar.style.background = 'linear-gradient(90deg, #ef4444, #f97316)';
-      } else {
-        statusMessage.classList.add('text-blue-400');
-        progressBar.style.background = 'linear-gradient(90deg, #3b82f6, #8b5cf6)';
-      }
-      
+      if (type === 'green') { statusMessage.classList.add('text-green-400'); progressBar.style.background = 'linear-gradient(90deg,#4ade80,#3b82f6)'; }
+      else if (type === 'red') { statusMessage.classList.add('text-red-400'); progressBar.style.background = 'linear-gradient(90deg,#ef4444,#f97316)'; }
+      else { statusMessage.classList.add('text-blue-400'); progressBar.style.background = 'linear-gradient(90deg,#3b82f6,#8b5cf6)'; }
       progressBar.style.width = '100%';
-      
-      if (type === 'green') {
-        setTimeout(() => {
-          hideStatus();
-        }, 10000);
-      }
+      if (type === 'green') { setTimeout(() => { hideStatus(); }, 10000); }
     }
     
     function hideStatus() {
       const statusMessage = document.getElementById('statusMessage');
       statusMessage.classList.add('opacity-0');
-      setTimeout(() => {
-        statusMessage.classList.add('hidden');
-      }, 800);
+      setTimeout(() => { statusMessage.classList.add('hidden'); }, 800);
     }
     
     function toggleRealEstateView() {
       const detailedView = document.getElementById('realEstateDetailedView');
       const compactView = document.getElementById('realEstateCompactView');
-      
-      if (detailedView.classList.contains('hidden')) {
-        detailedView.classList.remove('hidden');
-        compactView.classList.add('hidden');
-      } else {
-        detailedView.classList.add('hidden');
-        compactView.classList.remove('hidden');
-      }
+      if (detailedView.classList.contains('hidden')) { detailedView.classList.remove('hidden'); compactView.classList.add('hidden'); }
+      else { detailedView.classList.add('hidden'); compactView.classList.remove('hidden'); }
     }
 
     // Excel download functions
     function downloadLienExcel(pdfUrl) {
-        console.log('Downloading Lien Excel for:', pdfUrl);
-        showStatus('Preparing Lien Excel download...', 'blue');
-        
-        fetch('/download-lien-excel/', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRFToken': getCookie('csrftoken')
-            },
-            body: JSON.stringify({pdf_url: pdfUrl})
-        })
-        .then(response => {
-            if (response.ok) {
-                return response.blob();
-            }
-            throw new Error('Network response was not ok.');
-        })
-        .then(blob => {
-            const url = window.URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.style.display = 'none';
-            a.href = url;
-            a.download = `lien_data_${Date.now()}.xlsx`;
-            document.body.appendChild(a);
-            a.click();
-            window.URL.revokeObjectURL(url);
-            showStatus('Lien Excel downloaded successfully!', 'green');
-        })
-        .catch(error => {
-            console.error('Error downloading Lien Excel:', error);
-            showStatus('Error downloading Excel file: ' + error.message, 'red');
-        });
+      console.log('Downloading Lien Excel for:', pdfUrl);
+      showStatus('Preparing Lien Excel download...', 'blue');
+      fetch('/download-lien-excel/', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken') },
+        body: JSON.stringify({pdf_url: pdfUrl})
+      })
+      .then(response => { if (response.ok) return response.blob(); throw new Error('Network response was not ok.'); })
+      .then(blob => {
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a'); a.style.display = 'none'; a.href = url; a.download = `lien_data_${Date.now()}.xlsx`;
+        document.body.appendChild(a); a.click(); window.URL.revokeObjectURL(url);
+        showStatus('Lien Excel downloaded successfully!', 'green');
+      })
+      .catch(error => { console.error('Error downloading Lien Excel:', error); showStatus('Error downloading Excel file: ' + error.message, 'red'); });
     }
 
     function downloadRealEstateExcel(searchName) {
-        console.log('Downloading Real Estate Excel for:', searchName);
-        showStatus('Preparing Real Estate Excel download...', 'blue');
-        
-        fetch('/download-realestate-excel/', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRFToken': getCookie('csrftoken')
-            },
-            body: JSON.stringify({search_name: searchName})
-        })
-        .then(response => {
-            if (!response.ok) {
-                return response.json().then(err => { throw new Error(err.error || 'Download failed') });
-            }
-            return response.blob();
-        })
-        .then(blob => {
-            const url = window.URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.style.display = 'none';
-            a.href = url;
-            a.download = `realestate_${searchName}_${Date.now()}.xlsx`;
-            document.body.appendChild(a);
-            a.click();
-            window.URL.revokeObjectURL(url);
-            showStatus('Real Estate Excel downloaded successfully!', 'green');
-        })
-        .catch(error => {
-            console.error('Error downloading Real Estate Excel:', error);
-            showStatus('Error downloading Excel: ' + error.message, 'red');
-        });
+      console.log('Downloading Real Estate Excel for:', searchName);
+      showStatus('Preparing Real Estate Excel download...', 'blue');
+      fetch('/download-realestate-excel/', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken') },
+        body: JSON.stringify({search_name: searchName})
+      })
+      .then(response => { if (!response.ok) return response.json().then(err => { throw new Error(err.error || 'Download failed') }); return response.blob(); })
+      .then(blob => {
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a'); a.style.display = 'none'; a.href = url; a.download = `realestate_${searchName}_${Date.now()}.xlsx`;
+        document.body.appendChild(a); a.click(); window.URL.revokeObjectURL(url);
+        showStatus('Real Estate Excel downloaded successfully!', 'green');
+      })
+      .catch(error => { console.error('Error downloading Real Estate Excel:', error); showStatus('Error downloading Excel: ' + error.message, 'red'); });
     }
 
     function downloadAllLienExcel() {
-        showStatus('Preparing all Lien data Excel download...', 'blue');
-        
-        fetch('/download-all-lien-excel/')
-        .then(response => response.blob())
-        .then(blob => {
-            const url = window.URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.style.display = 'none';
-            a.href = url;
-            a.download = `all_lien_data_${Date.now()}.xlsx`;
-            document.body.appendChild(a);
-            a.click();
-            window.URL.revokeObjectURL(url);
-            showStatus('All Lien data Excel downloaded successfully!', 'green');
-        })
-        .catch(error => {
-            console.error('Error downloading all Lien Excel:', error);
-            showStatus('Error downloading Excel file: ' + error.message, 'red');
-        });
+      showStatus('Preparing all Lien data Excel download...', 'blue');
+      fetch('/download-all-lien-excel/')
+      .then(response => response.blob())
+      .then(blob => {
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a'); a.style.display = 'none'; a.href = url; a.download = `all_lien_data_${Date.now()}.xlsx`;
+        document.body.appendChild(a); a.click(); window.URL.revokeObjectURL(url);
+        showStatus('All Lien data Excel downloaded successfully!', 'green');
+      })
+      .catch(error => { console.error('Error downloading all Lien Excel:', error); showStatus('Error downloading Excel file: ' + error.message, 'red'); });
     }
 
     function downloadAllRealEstateExcel() {
-        showStatus('Preparing all Real Estate data Excel download...', 'blue');
-        
-        fetch('/download-all-realestate-excel/')
-        .then(response => response.blob())
-        .then(blob => {
-            const url = window.URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.style.display = 'none';
-            a.href = url;
-            a.download = `all_realestate_data_${Date.now()}.xlsx`;
-            document.body.appendChild(a);
-            a.click();
-            window.URL.revokeObjectURL(url);
-            showStatus('All Real Estate data Excel downloaded successfully!', 'green');
-        })
-        .catch(error => {
-            console.error('Error downloading all Real Estate Excel:', error);
-            showStatus('Error downloading Excel file: ' + error.message, 'red');
-        });
+      showStatus('Preparing all Real Estate data Excel download...', 'blue');
+      fetch('/download-all-realestate-excel/')
+      .then(response => response.blob())
+      .then(blob => {
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a'); a.style.display = 'none'; a.href = url; a.download = `all_realestate_data_${Date.now()}.xlsx`;
+        document.body.appendChild(a); a.click(); window.URL.revokeObjectURL(url);
+        showStatus('All Real Estate data Excel downloaded successfully!', 'green');
+      })
+      .catch(error => { console.error('Error downloading all Real Estate Excel:', error); showStatus('Error downloading Excel file: ' + error.message, 'red'); });
     }
     
-    function openLink(url) {
-      if (url && url !== 'N/A' && url !== 'Not available') {
-        window.open(url, '_blank');
-      }
-    }
+    function openLink(url) { if (url && url !== 'N/A' && url !== 'Not available') window.open(url, '_blank'); }
     
     function getCookie(name) {
       let cookieValue = null;
@@ -1058,13 +1118,7 @@
     // Utility function to escape HTML
     function escapeHtml(unsafe) {
       if (unsafe === null || unsafe === undefined) return 'Not available';
-      return unsafe
-        .toString()
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#039;");
+      return unsafe.toString().replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#039;");
     }
   </script>
 </body>

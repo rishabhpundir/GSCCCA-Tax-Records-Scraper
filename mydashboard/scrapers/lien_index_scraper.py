@@ -212,49 +212,31 @@ class GSCCCAScraper:
         except Exception as e:
             console.print(f"[red]Error in step2_click_name_search: {e}[/red]")
 
-    async def step3_fill_form(self):
-        """Fill Name Search form with given details."""
-        print("[STEP 3] Filling Name Search form...")
-
+    async def step3_fill_form_dynamic(self, form_data):
+        print(f"Inside the form 3 {form_data}")
         try:
-            await self.page.select_option("#txtPartyType", "2")
-            await self.page.wait_for_timeout(self.time_sleep())
+            await self.page.select_option("#txtPartyType", form_data.get("party_type", "2"))
+            await self.page.select_option("select[name='txtInstrCode']", form_data.get("instrument_type", "ALL"))
+            await self.page.select_option("select[name='intCountyID']", form_data.get("county", "-1"))
 
-            await self.page.select_option("select[name='txtInstrCode']", "2")
-            await self.page.wait_for_timeout(self.time_sleep())
+            include_val = form_data.get("include_counties", "0")
+            checkbox_selector = f"input[name='bolInclude'][value='{include_val}']"
+            if await self.page.query_selector(checkbox_selector):
+                await self.page.check(checkbox_selector)
 
-            await self.page.select_option("select[name='intCountyID']", "64")
-            await self.page.wait_for_timeout(self.time_sleep())
+            await self.page.fill("input[name='txtSearchName']", form_data.get("search_name", ""))
+            await self.page.fill("input[name='txtFromDate']", form_data.get("from_date", ""))
+            await self.page.fill("input[name='txtToDate']", form_data.get("to_date", ""))
 
-            await self.page.check("input[name='bolInclude'][value='0']")
-            await self.page.wait_for_timeout(self.time_sleep())
+            await self.page.select_option("select[name='MaxRows']", form_data.get("max_rows", "100"))
+            await self.page.select_option("select[name='TableType']", form_data.get("table_type", "1"))
 
-            search_box = await self.page.query_selector("#txtSearchName")
-            await search_box.click()
-            for ch in "gordon":
-                await self.page.keyboard.type(ch, delay=random.randint(100, 250)) 
-            await self.page.wait_for_timeout(self.time_sleep())
-
-            await self.page.fill("input[name='txtFromDate']", "")
-            for ch in "01/01/2025":
-                await self.page.keyboard.type(ch, delay=random.randint(100, 220))
-
-            await self.page.fill("input[name='txtToDate']", "")
-            for ch in "09/23/2025":
-                await self.page.keyboard.type(ch, delay=random.randint(100, 220))
-            await self.page.wait_for_timeout(self.time_sleep())
-
-            await self.page.select_option("select[name='MaxRows']", "100")
-            await self.page.wait_for_timeout(self.time_sleep())
-
-            await self.page.select_option("select[name='TableType']", "1")
-            await self.page.wait_for_timeout(self.time_sleep())
- 
             await self.page.click("form[name='SearchType'] input[value='Search']")
-            print("[STEP 3] Form filled successfully")
+            print("[STEP 3] Dynamic form filled successfully")
 
         except Exception as e:
-            console.print(f"[red]Error in step3_fill_form: {e}[/red]")
+            print(f"[ERROR] step3_fill_form_dynamic: {e}")
+
 
     async def step4_select_highest_occurs(self, email: str = None, password: str = None):
         """On liennames.asp page, select row with highest Occurs score."""
@@ -325,6 +307,7 @@ class GSCCCAScraper:
         except Exception as e:
             console.print(f"[red]Error in human_scroll: {e}[/red]")
 
+
     async def process_rp_details(self):
         """ Step 5: Process all RP buttons, extract data and save """
         self.results = []
@@ -347,7 +330,7 @@ class GSCCCAScraper:
                 total = len(rp_links)
                 print(f"[INFO] Found {total} RP buttons on this page")
 
-                for i in range(total):  
+                for i in range(min(2,total)):  
                     try:
                         rp_links = await self.page.query_selector_all("a[href*='lienfinal']")
                         if i >= len(rp_links):
@@ -789,13 +772,14 @@ class GSCCCAScraper:
             console.print(f"[red]Scrape error: {e}[/red]")
             return {}
 
-    async def run(self):
-        """initialize playwright browser and run scraper"""
+    async def run_dynamic(self, form_data: dict):
+        """Run lien scraper dynamically with Django form data"""
         try:
             playwright = await pw.async_playwright().start()
             browser = await playwright.chromium.launch(
-                headless=HEADLESS, 
+                headless=HEADLESS,
                 channel="chrome",
+                # ignore_https_errors=True,
                 args=[
                     "--disable-blink-features=AutomationControlled",
                     "--start-maximized",
@@ -826,6 +810,7 @@ class GSCCCAScraper:
                 )
                 self.page = await browser.new_page()
 
+            # login if needed
             if STATE_FILE.exists():
                 print("Loaded session from cookies.json...")
                 await context.add_cookies(json.loads(Path(STATE_FILE).read_text())["cookies"])
@@ -838,24 +823,28 @@ class GSCCCAScraper:
                         await self.page.wait_for_timeout(self.time_sleep())
                         await self.dump_cookies()
 
-            # -------- Steps after login --------
+            # --- Steps using form data ---
             if not await self.step1_open_homepage():
                 await self.login_(email=self.email, password=self.password)
                 await self.page.wait_for_timeout(self.time_sleep())
 
             await self.step2_click_name_search()
             await self.check_and_handle_announcement()
-            await self.step3_fill_form()
+            print("Before step 3 form data:", form_data)
+            await self.step3_fill_form_dynamic(form_data)
+            print("After step 3 form submission")
             await self.check_and_handle_announcement()
             await self.step4_select_highest_occurs(email=self.email, password=self.password)
             await self.check_and_handle_announcement()
-            await self.process_rp_details()  
+            await self.process_rp_details()
             await self.check_and_handle_announcement()
             self.save_to_excel()
+
             await browser.close()
             await playwright.stop()
+
         except Exception as e:
-            console.print(f"[red]Error in run method: {e}[/red]")
+            console.print(f"[red]Error in run_dynamic: {e}[/red]")
             traceback.print_exc()
 
 
