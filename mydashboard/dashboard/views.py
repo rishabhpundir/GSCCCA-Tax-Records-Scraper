@@ -29,6 +29,64 @@ DOWNLOADS_DIR = SCRAPERS_DIR / "downloads"
 
 
 
+
+def lien_form(request):
+    """Render the Lien Search form page"""
+    return render(request, "lien_form.html")   # ← this will be your template file
+
+
+@csrf_exempt
+def run_lien_scraper_dynamic(request):
+    """Run lien scraper with dynamic form input"""
+    if request.method == "POST":
+        form_data = request.POST.dict()   # capture all inputs from the form
+
+        # Run scraper in background thread
+        thread = threading.Thread(target=run_lien_scraper_with_form, args=(form_data,))
+        thread.start()
+
+        return JsonResponse({"status": "Lien scraper started with form input"})
+
+    return JsonResponse({"error": "Invalid request"}, status=400)
+
+
+def run_lien_scraper_with_form(form_data):
+    """Helper to run scraper with user-provided form data"""
+    try:
+        from scrapers.lien_index_scraper import GSCCCAScraper
+
+        async def run():
+            scraper = GSCCCAScraper()
+            await scraper.run_dynamic(form_data)   # you’ll add step3_fill_form_dynamic inside scraper
+
+        asyncio.run(run())
+
+    except Exception as e:
+        logger.error(f"Error in run_lien_scraper_with_form: {e}")
+        traceback.print_exc()
+        
+@csrf_exempt
+def run_lien_scraper_with_form(request):
+    if request.method == "POST":
+        try:
+            form_data = request.POST.dict()
+
+            def run():
+                from scrapers.lien_index_scraper import GSCCCAScraper
+                scraper = GSCCCAScraper()
+                import asyncio
+                asyncio.run(scraper.run_dynamic(form_data))
+
+            threading.Thread(target=run).start()
+            return JsonResponse({"status": "success", "message": "Lien scraper started with form data"})
+        except Exception as e:
+            logger.error(f"Error in run_lien_scraper_with_form: {e}")
+            return JsonResponse({"error": str(e)}, status=500)
+
+    return JsonResponse({"error": "Invalid request"}, status=400)
+
+        
+
 def my_view(request):
     logger.info("User opened dashboard view")
     logger.debug("This is a debug message for developers")
@@ -42,15 +100,33 @@ def dashboard(request):
         'lien_data': lien_data,
         'realestate_data': realestate_data
     })
+    
+    
 
 @csrf_exempt
 def start_scraper(request):
     if request.method == 'POST':
-        data = json.loads(request.body)
+        # data = json.loads(request.body)
+        data = request.POST
         scraper_type = data.get('scraper_type')
-        
+        lien_params = {
+            'county': data.get('county', ''),
+            'instrument': data.get('instrument', ''),
+            'party_type': data.get('party_type', ''),
+            'include_counties': data.get('include_counties', False),
+            'search_name': data.get('search_name', ''),
+            'from_date': data.get('from_date', ''),
+            'to_date': data.get('to_date', ''),
+            'max_rows': data.get('max_rows', 1000),
+            'table_type': data.get('table_type', '1'),
+        }
         if scraper_type == 'lien':
-            thread = threading.Thread(target=run_lien_scraper_and_save)
+            # thread = threading.Thread(target=run_lien_scraper_and_save)
+            thread = threading.Thread(
+                target=run_lien_scraper_and_save,
+                kwargs={"params": lien_params},
+                daemon=True,
+            )
             thread.start()
             return JsonResponse({'status': 'Lien scraper started'})
         
@@ -72,7 +148,8 @@ def get_latest_data(request):
     return JsonResponse({'data': data})
 
 
-def run_lien_scraper_and_save():
+def run_lien_scraper_and_save(params: dict):
+ 
     """Run lien scraper and save results to database"""
     try:
         logger.info("Starting lien scraper...")
@@ -82,7 +159,7 @@ def run_lien_scraper_and_save():
         
         # Run the lien scraper
         scraper = GSCCCAScraper()
-        asyncio.run(scraper.run())
+        asyncio.run(scraper.run_dynamic(params))
         
         # Find the latest Excel file - check the correct Output directory
         latest_file = find_latest_excel_file(OUTPUT_DIR, "LienResults")
