@@ -51,14 +51,14 @@ else {
     Write-Host "requirements.txt not found - skipping pip install."
 }
 
-# Change directory to mydashboard
-Write-Host "Changing directory to mydashboard..."
-if (Test-Path -Path "mydashboard" -PathType Container) {
-    Set-Location -Path "mydashboard"
-    Write-Host "Directory changed to mydashboard."
+# Change directory to core
+Write-Host "Changing directory to core..."
+if (Test-Path -Path "core" -PathType Container) {
+    Set-Location -Path "core"
+    Write-Host "Directory changed to core."
 }
 else {
-    Write-Host "mydashboard directory not found. Exiting."
+    Write-Host "core directory not found. Exiting."
     exit 1
 }
 

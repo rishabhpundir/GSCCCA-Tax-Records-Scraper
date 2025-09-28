@@ -61,14 +61,14 @@ else
 fi
 
 # -------------------------------
-# Change directory to mydashboard
+# Change directory to core
 # -------------------------------
-echo "➡️ Changing directory to mydashboard..."
-if [ -d "mydashboard" ]; then
-    cd mydashboard
-    echo "✅ Directory changed to mydashboard."
+echo "➡️ Changing directory to core..."
+if [ -d "core" ]; then
+    cd core
+    echo "✅ Directory changed to core."
 else
-    echo "❌ mydashboard directory not found. Exiting."
+    echo "❌ core directory not found. Exiting."
     exit 1
 fi
 

@@ -1,44 +1,35 @@
 from __future__ import annotations
 
 import os
-import io
 import re
+import ssl
 import json
-import math
 import random
 import asyncio
 import traceback
-import pandas as pd
-import requests
-import openpyxl
-from openpyxl.styles import Font
-import img2pdf
-import aiohttp
-import ssl
-import certifi
-import pytesseract
-import cv2
-import numpy as np
+from pathlib import Path
 from datetime import datetime
 
 
-from pathlib import Path
+import cv2
+import certifi
+import img2pdf
+import numpy as np
+import pytesseract
+import pandas as pd
 from PIL import Image
+from typing import Any, Dict
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 from rich.console import Console
 import playwright.async_api as pw
-from typing import Tuple, Optional, Any, Dict
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
+
+# Load environment variables
 load_dotenv()
 console = Console()
 
-try:
-    if os.name == "nt":  # Windows
-        pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
-except Exception as e:
-    console.print(f"[red]Error setting up Tesseract: {e}[/red]")
 
 # ---------- config -------------------------------------------------------------
 HEADLESS = False 
@@ -60,8 +51,16 @@ EXTRA_HEADERS = {
 }
 TOTAL_LINE_REGEX = re.compile(r'(TOTAL\s*DUE|TOTALDUE)', re.I)
 
-# ---------- core scraping ----------------------------------------------------
 
+# load Tesseract path for Windows if needed
+try:
+    if os.name == "nt":  # Windows
+        pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+except Exception as e:
+    console.print(f"[red]Error setting up Tesseract: {e}[/red]")
+
+
+# ---------- core scraping ----------------------------------------------------
 class GSCCCAScraper:
     """Scrape the latest tax records from GSCCCA pages."""
 
@@ -70,6 +69,7 @@ class GSCCCAScraper:
             self.page = None
             self.email = TAX_EMAIL
             self.password = TAX_PASSWORD
+            self.form_data = {}
             self.homepage = "https://www.gsccca.org/"
             self.login_url = "https://apps.gsccca.org/login.asp"
             self.name_search_url = "https://search.gsccca.org/Lien/namesearch.asp"
@@ -115,148 +115,127 @@ class GSCCCAScraper:
             await self.page.wait_for_load_state("domcontentloaded")
             all_text = await self.page.evaluate("document.body.innerText")
             if "logout" in all_text.lower():
-                print("Logout link detected -> User is already logged in.")
                 return True
-
-            print("Could not detect login/logout clearly.")
             return False
 
         except Exception as e:
             print(f"[already_logged_in ERROR] {e}")
             return False
 
-    async def login_(self, email: str, password: str):
+    async def login(self):
         """Perform login and save cookies."""
         try:
-            print("[LOGIN] Navigating to login page...")
+            print("[LOGIN] Trying to login...")
             await self.page.goto(self.login_url, wait_until="domcontentloaded", timeout=60000)
             await self.page.wait_for_timeout(self.time_sleep())
             await self.check_and_handle_announcement()
 
-            print(f"[LOGIN] Filling username: {email}")
-            await self.page.fill("input[name='txtUserID']", email)
-
-            print("[LOGIN] Filling password...")
-            await self.page.fill("input[name='txtPassword']", password)
-            await self.page.wait_for_timeout(2000) 
-
-            print("[LOGIN] Checking 'Remember login details' checkbox if not already checked...")
+            await self.page.fill("input[name='txtUserID']", self.email)
+            await self.page.wait_for_timeout(self.time_sleep()) 
+            await self.page.fill("input[name='txtPassword']", self.password)
+            await self.page.wait_for_timeout(self.time_sleep())
             checkbox = await self.page.query_selector("input[type='checkbox'][name='permanent']")
+            await self.page.wait_for_timeout(self.time_sleep(a=1000, b=1200))
+            
             if checkbox:
                 is_checked = await checkbox.is_checked()
                 if not is_checked:
                     await checkbox.click()
-                    print("[LOGIN] Checkbox clicked.")
-                else:
-                    print("[LOGIN] Checkbox already checked.")
             else:
                 print("[LOGIN] Checkbox not found on the page.")
 
             try:
-                print("[LOGIN] Clicking login button...")
                 await self.page.click("img[name='logon']")
             except Exception as e:
-                print(f"[LOGIN] Click failed: {e}, using JS submit...")
+                print(f"[LOGIN] Login button Click failed: {e}, using JS submit...")
                 await self.page.evaluate("document.forms['frmLogin'].submit()")
 
-            await self.page.wait_for_load_state("networkidle", timeout=15000)
-
+            await self.page.wait_for_load_state("networkidle", timeout=60000)
             if await self.page.query_selector("a:has-text('Logout')"):
-                print("[LOGIN] Login successful!")
+                console.print("[red][LOGIN] Login successful![/red]")
                 await self.dump_cookies()
                 return True
             else:
-                print("[LOGIN] Login failed")
+                print("[LOGIN] Login failed!")
                 return False
         except Exception as e:
             console.print(f"[red]Error during login: {e}[/red]")
             return False
     
-    async def step1_open_homepage(self):
-        """Go to homepage & check if logged in."""
+    
+    async def check_session(self):
+        """Check on homepage if user is logged in."""
         try:
-            print("[STEP 1] Opening homepage...")
-            await self.page.goto(self.homepage, wait_until="domcontentloaded")
-            await self.page.wait_for_timeout(self.time_sleep())
-
             if await self.already_logged_in():
-                print("[STEP 1] Logged in detected")
+                console.print("[green]Logged in session detected!![/green]")
                 return True
             else:
-                print("[STEP 1] Not logged in")
+                console.print("[red]Session not found![/red]")
                 return False
         except Exception as e:
-            console.print(f"[red]Error in step1_open_homepage: {e}[/red]")
+            console.print(f"[red]Error in check_session: {e}[/red]")
             return False
+        
         
     async def check_and_handle_announcement(self):
         """Check if announcement page loaded; if yes, redirect to name_search_url."""
         try:
             current_url = self.page.url
-            if "CustomerCommunicationApiAnnouncement1.asp" in current_url:
+            if "Announcement" in current_url:
                 print("[INFO] Announcement page detected. Redirecting to name search...")
                 await self.page.select_option("#Options", "dismiss")
-                await self.page.wait_for_timeout(1500)
+                await self.page.wait_for_timeout(1000)
                 await self.page.click("input[name='Continue']")
         except Exception as e:
             console.print(f"[red]Error handling announcement: {e}[/red]")
 
-    async def step2_click_name_search(self):
+
+    async def start_search(self):
         """Go directly to Name Search page."""
         try:
             print("[STEP 2] Going directly to Name Search page...")
             await self.page.goto(self.name_search_url, wait_until="domcontentloaded", timeout=60000)
             await self.page.wait_for_timeout(self.time_sleep())
             await self.check_and_handle_announcement()
-            print("[STEP 2] Landed on Name Search page")
         except Exception as e:
-            console.print(f"[red]Error in step2_click_name_search: {e}[/red]")
+            console.print(f"[red]Error in start_search: {e}[/red]")
 
-    async def step3_fill_form_dynamic(self, form_data):
-        print(f"Inside the form 3 {form_data}")
         try:
-            await self.page.select_option("#txtPartyType", form_data.get("party_type", "2"))
-            await self.page.select_option("select[name='txtInstrCode']", form_data.get("instrument_type", "ALL"))
-            await self.page.select_option("select[name='intCountyID']", form_data.get("county", "-1"))
+            await self.page.select_option("#txtPartyType", self.form_data.get("party_type"))
+            await self.page.wait_for_timeout(self.time_sleep(a=250, b=500))
+            await self.page.select_option("select[name='txtInstrCode']", self.form_data.get("instrument_type"))
+            await self.page.wait_for_timeout(self.time_sleep(a=250, b=500))
+            await self.page.select_option("select[name='intCountyID']", self.form_data.get("county"))
+            await self.page.wait_for_timeout(self.time_sleep(a=250, b=500))
 
-            include_val = form_data.get("include_counties", "0")
+            include_val = self.form_data.get("include_counties")
+            await self.page.wait_for_timeout(self.time_sleep(a=250, b=500))
             checkbox_selector = f"input[name='bolInclude'][value='{include_val}']"
+            await self.page.wait_for_timeout(self.time_sleep(a=250, b=500))
             if await self.page.query_selector(checkbox_selector):
                 await self.page.check(checkbox_selector)
+            await self.page.wait_for_timeout(self.time_sleep(a=250, b=500))
 
-            await self.page.fill("input[name='txtSearchName']", form_data.get("search_name", ""))
-            await self.page.fill("input[name='txtFromDate']", form_data.get("from_date", ""))
-            await self.page.fill("input[name='txtToDate']", form_data.get("to_date", ""))
+            await self.page.fill("input[name='txtSearchName']", self.form_data.get("search_name"))
+            await self.page.wait_for_timeout(self.time_sleep(a=250, b=500))
+            await self.page.fill("input[name='txtFromDate']", self.form_data.get("from_date"))
+            await self.page.wait_for_timeout(self.time_sleep(a=250, b=500))
+            await self.page.fill("input[name='txtToDate']", self.form_data.get("to_date"))
+            await self.page.wait_for_timeout(self.time_sleep(a=250, b=500))
+            await self.page.select_option("select[name='MaxRows']", self.form_data.get("max_rows", "100"))
+            await self.page.wait_for_timeout(self.time_sleep(a=250, b=500))
+            await self.page.select_option("select[name='TableType']", self.form_data.get("table_type", "1"))
 
-            await self.page.select_option("select[name='MaxRows']", form_data.get("max_rows", "100"))
-            await self.page.select_option("select[name='TableType']", form_data.get("table_type", "1"))
-
-            await self.page.click("form[name='SearchType'] input[value='Search']")
-            print("[STEP 3] Dynamic form filled successfully")
-
+            await self.page.wait_for_timeout(self.time_sleep())
+            await self.page.locator('input[type="button"][value="Search"]').click()
         except Exception as e:
             print(f"[ERROR] step3_fill_form_dynamic: {e}")
 
 
-    async def step4_select_highest_occurs(self, email: str = None, password: str = None):
+    async def get_search_results(self, email: str = None, password: str = None):
         """On liennames.asp page, select row with highest Occurs score."""
         print("[STEP 4] Selecting row with highest Occurs...")
-
         try:
-            # agar session expire ho gaya toh redirect hoga login.asp pe
-            if "login.asp" in self.page.url:
-                console.print("[yellow]Session expired → Re-logging in...[/yellow]")
-                if email and password:
-                    success = await self.login_(email, password)
-                    if not success:
-                        console.print("[red]Re-login failed. Stopping step 4.[/red]")
-                        return
-                    # dubara liennames.asp pe jao
-                    await self.page.goto("https://apps.gsccca.org/lien/liennames.asp", wait_until="domcontentloaded")
-                else:
-                    console.print("[red]No credentials provided for re-login![/red]")
-                    return
-
             await self.page.wait_for_selector("table.name_results", timeout=30_000)
             rows = await self.page.query_selector_all("table.name_results tr")
             highest_occurs = -1
@@ -287,7 +266,7 @@ class GSCCCAScraper:
                 print("[STEP 4] No rows found to select")
 
         except Exception as e:
-            console.print(f"[red]Error in step4_select_highest_occurs: {e}[/red]")
+            console.print(f"[red]Error in get_search_results: {e}[/red]")
 
 
     async def human_delay(self, min_t=0.8, max_t=2.0):
@@ -397,7 +376,6 @@ class GSCCCAScraper:
         except Exception as e:
             console.print(f"[red]Error in process_rp_details: {e}[/red]")
 
-    
 
     def remove_table_lines(self, bw_inv: np.ndarray) -> np.ndarray:
         try:
@@ -772,14 +750,15 @@ class GSCCCAScraper:
             console.print(f"[red]Scrape error: {e}[/red]")
             return {}
 
+
     async def run_dynamic(self, form_data: dict):
         """Run lien scraper dynamically with Django form data"""
         try:
+            self.form_data = form_data
             playwright = await pw.async_playwright().start()
             browser = await playwright.chromium.launch(
                 headless=HEADLESS,
                 channel="chrome",
-                # ignore_https_errors=True,
                 args=[
                     "--disable-blink-features=AutomationControlled",
                     "--start-maximized",
@@ -787,7 +766,7 @@ class GSCCCAScraper:
             )
 
             if STATE_FILE.exists():
-                print("Loaded session from storage...")
+                print("Loading session from storage...")
                 context = await browser.new_context(
                     storage_state=STATE_FILE,
                     user_agent=UA,
@@ -795,6 +774,7 @@ class GSCCCAScraper:
                     timezone_id=TIMEZONE,
                     viewport=VIEWPORT,
                     device_scale_factor=1,
+                    ignore_https_errors=True,
                     extra_http_headers=EXTRA_HEADERS,
                 )
                 self.page = await context.new_page()
@@ -808,45 +788,37 @@ class GSCCCAScraper:
                     device_scale_factor=1,
                     extra_http_headers=EXTRA_HEADERS,
                 )
-                self.page = await browser.new_page()
+                self.page = await browser.new_page(ignore_https_errors=True)
 
             # login if needed
             if STATE_FILE.exists():
-                print("Loaded session from cookies.json...")
                 await context.add_cookies(json.loads(Path(STATE_FILE).read_text())["cookies"])
-                await self.page.goto(self.homepage, wait_until="domcontentloaded")
+                await self.page.goto(self.homepage, wait_until="domcontentloaded", timeout=60000)
+                await self.check_and_handle_announcement()
             else:
                 print("Starting fresh login...")
                 await self.page.goto(self.login_url, wait_until="domcontentloaded")
                 if not await self.already_logged_in():
-                    if await self.login_(email=self.email, password=self.password):
+                    if await self.login():
                         await self.page.wait_for_timeout(self.time_sleep())
                         await self.dump_cookies()
 
             # --- Steps using form data ---
-            if not await self.step1_open_homepage():
-                await self.login_(email=self.email, password=self.password)
+            if not await self.check_session():
+                console.print("[yellow]Session invalid → Re-logging in...[/yellow]")
+                await self.login()
                 await self.page.wait_for_timeout(self.time_sleep())
 
-            await self.step2_click_name_search()
-            await self.check_and_handle_announcement()
-            print("Before step 3 form data:", form_data)
-            await self.step3_fill_form_dynamic(form_data)
-            print("After step 3 form submission")
-            await self.check_and_handle_announcement()
-            await self.step4_select_highest_occurs(email=self.email, password=self.password)
-            await self.check_and_handle_announcement()
+            await self.start_search()
+            await self.get_search_results()
             await self.process_rp_details()
-            await self.check_and_handle_announcement()
             self.save_to_excel()
 
             await browser.close()
             await playwright.stop()
-
         except Exception as e:
             console.print(f"[red]Error in run_dynamic: {e}[/red]")
             traceback.print_exc()
-
 
 
 async def main() -> None:
@@ -868,3 +840,6 @@ if __name__ == "__main__":
         traceback.print_exc()
     finally:
         console.print("[bold green]Exiting...[/bold green]")
+        
+        
+        

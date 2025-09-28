@@ -413,6 +413,7 @@
 
         <!-- Body -->
         <form id="lienForm" class="px-6 py-5 space-y-4" onsubmit="submitLienForm(event)">
+          {% csrf_token %}
           <div id="lienFormFields" class="grid grid-cols-1 md:grid-cols-2 gap-4">
             <!-- Your updated fields -->
             <div class="md:col-span-2">
@@ -584,7 +585,7 @@
 
             <div class="md:col-span-2">
               <label class="block text-sm text-gray-300 mb-1">Instrument</label>
-              <select name="instrument" class="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500">
+              <select name="instrument_type" class="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500">
                 <option value="">-- Any --</option>
                 <option value="1">AFFIDAVIT</option>
                 <option value="13">Agreement</option>
@@ -637,11 +638,11 @@
             <div class="md:col-span-2">
               <div>
                 <label for="txtFromDate" class="block text-sm font-semibold mb-2 text-gray-300">Display Results From (optional)</label>
-                <input type="text" id="txtFromDate" name="from_date" maxlength="10" class="w-full p-2 rounded-lg bg-gray-800 border border-gray-700 text-white placeholder-gray-500 focus:ring-green-500 focus:border-green-500" placeholder="mm/dd/yyyy">
+                <input type="date" id="txtFromDate" name="from_date" maxlength="10" class="w-full p-2 rounded-lg bg-gray-800 border border-gray-700 text-white placeholder-gray-500 focus:ring-green-500 focus:border-green-500" placeholder="mm/dd/yyyy">
               </div>
               <div>
                 <label for="txtToDate" class="block text-sm font-semibold mb-2 text-gray-300">Through</label>
-                <input type="text" id="txtToDate" name="to_date" maxlength="10" class="w-full p-2 rounded-lg bg-gray-800 border border-gray-700 text-white placeholder-gray-500 focus:ring-green-500 focus:border-green-500" placeholder="mm/dd/yyyy">
+                <input type="date" id="txtToDate" name="to_date" maxlength="10" class="w-full p-2 rounded-lg bg-gray-800 border border-gray-700 text-white placeholder-gray-500 focus:ring-green-500 focus:border-green-500" placeholder="mm/dd/yyyy">
               </div>
             </div>
 
@@ -776,7 +777,7 @@
       const buttons = document.querySelectorAll('button');
       buttons.forEach(btn => btn.disabled = true);
       isLienScraperRunning = true;
-      startPolling();
+      // startPolling();
 
       fetch('/start-scraper/', {
         method: 'POST',
@@ -846,7 +847,7 @@
       const buttons = document.querySelectorAll('button');
       buttons.forEach(btn => btn.disabled = true);
       if (type === 'lien') { isLienScraperRunning = true; } else { isRealEstateScraperRunning = true; }
-      if (isLienScraperRunning || isRealEstateScraperRunning) startPolling();
+      if (isLienScraperRunning || isRealEstateScraperRunning) console.log("started polling...") //startPolling();
       showStatus(`Starting ${type} scraper...`, 'blue');
       fetch('/start-scraper/', {
         method: 'POST',

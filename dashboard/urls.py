@@ -12,7 +12,5 @@ urlpatterns = [
     path('download-all-lien-excel/', views.download_all_lien_excel, name='download_all_lien_excel'),
     path('download-realestate-excel/', views.download_realestate_excel, name='download_realestate_excel'),
     path('download-all-realestate-excel/', views.download_all_realestate_excel, name='download_all_realestate_excel'),
-    
-    path('run-lien-scraper/', views.run_lien_scraper_with_form, name='run_lien_scraper_dynamic'),
 
 ]
