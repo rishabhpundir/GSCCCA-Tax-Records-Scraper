@@ -25,6 +25,9 @@ from rich.console import Console
 import playwright.async_api as pw
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
+# Corrected Import to break circular dependency
+from dashboard.utils.state import stop_scraper_flag 
+
 
 # Load environment variables
 load_dotenv()
@@ -75,15 +78,18 @@ class GSCCCAScraper:
             self.name_search_url = "https://search.gsccca.org/Lien/namesearch.asp"
             self.results = []
             
-            # ✅ SINGLE Output folder definition (scrapers folder ke andar)
-            script_dir = Path(__file__).parent.absolute()
-            self.output_dir = script_dir / "Output"
-            self.downloads_dir = script_dir / "downloads"
-            
-            # Agar folder na ho toh bana do
-            self.output_dir.mkdir(parents=True, exist_ok=True)
-            self.downloads_dir.mkdir(parents=True, exist_ok=True)
 
+            script_dir = Path(__file__).parent.absolute() 
+            self.base_output_dir = script_dir.parent / "output" 
+            self.lien_data_dir = self.base_output_dir / "Lien data"
+            self.downloads_dir = self.lien_data_dir / "Documents" 
+            self.downloads_dir.mkdir(parents=True, exist_ok=True)
+            self.excel_output_dir = self.lien_data_dir 
+            self.excel_output_dir.mkdir(parents=True, exist_ok=True)
+            
+            # console.print(f"[green]Lien Excel output directory: {self.excel_output_dir}[/green]")
+            # console.print(f"[green]Lien Documents directory: {self.downloads_dir}[/green]")
+            # # --------------------------------------------
 
             # SSL Context for aiohttp
             self.ssl_context = ssl.create_default_context(cafile=certifi.where())
@@ -294,6 +300,11 @@ class GSCCCAScraper:
 
         try:
             while True:
+                # Add stop check
+                if stop_scraper_flag['lien']:
+                    console.print("[yellow]Stop signal received. Stopping lien scraper.[/yellow]")
+                    break
+                    
                 # Unique marker: first RP link href
                 rp_links = await self.page.query_selector_all("a[href*='lienfinal']")
                 if not rp_links:
@@ -309,7 +320,13 @@ class GSCCCAScraper:
                 total = len(rp_links)
                 print(f"[INFO] Found {total} RP buttons on this page")
 
-                for i in range(min(2,total)):  
+                for i in range(min(15,total)):  
+                    
+                    # Add stop check inside the inner loop
+                    if stop_scraper_flag['lien']:
+                        console.print("[yellow]Stop signal received. Stopping lien scraper.[/yellow]")
+                        break
+                        
                     try:
                         rp_links = await self.page.query_selector_all("a[href*='lienfinal']")
                         if i >= len(rp_links):
@@ -329,6 +346,9 @@ class GSCCCAScraper:
                                 if attempt == retries - 1:
                                     raise
                                 await asyncio.sleep(3)
+                        
+                        # Add stop check after successful navigation
+                        if stop_scraper_flag['lien']: break
 
                         data = await self.parse_rp_detail()
                         if data:
@@ -336,8 +356,7 @@ class GSCCCAScraper:
                             print(f"[SUCCESS] Saved RP index {i+1} → "
                                   f"{data.get('Name Selected','N/A')} | "
                                   f"Book={data.get('Book','')} Page={data.get('Page','')}")
-                            
-                            # pd.DataFrame(self.results).to_excel("LienResults.xlsx", index=False)
+                    
 
                         # back
                         await asyncio.sleep(2)
@@ -357,10 +376,14 @@ class GSCCCAScraper:
                         except:
                             pass
                         continue
+                
+                # If inner loop broke due to stop signal, break outer loop too
+                if stop_scraper_flag['lien']:
+                    break
 
                 # Pagination: look for "Next" explicitly
                 next_page = await self.page.query_selector("a:has-text('Next')")
-                if next_page:
+                if next_page and not stop_scraper_flag['lien']:
                     print("[INFO] Going to next page...")
                     try:
                         await next_page.click()
@@ -369,7 +392,7 @@ class GSCCCAScraper:
                         print(f"[ERROR] Pagination failed: {e}")
                         break
                 else:
-                    print("[INFO] No more pages found.")
+                    print("[INFO] No more pages found or stop signal received.")
                     break
 
             self.save_to_excel("LienResults.xlsx")
@@ -457,6 +480,11 @@ class GSCCCAScraper:
             html = await self.page.content()
             soup = BeautifulSoup(html, "html.parser")
             data = {}
+            
+            # Stop check
+            if stop_scraper_flag['lien']:
+                console.print("[yellow]Stop signal received during parse_rp_detail.[/yellow]")
+                return {}
 
             def safe_text(el):
                 return el.get_text(" ", strip=True) if el else ""
@@ -593,22 +621,27 @@ class GSCCCAScraper:
                     debtor_name = debtor_name.replace(" ", "_").replace(",", "")
                     pdf_name = f"{debtor_name}_Page{page_num}.pdf"
 
-                    download_dir = "downloads"
-                    os.makedirs(download_dir, exist_ok=True)
-                    pdf_path = os.path.join(download_dir, pdf_name)
+                    # Use the new downloads directory
+                    pdf_path = self.downloads_dir / pdf_name
 
                     try:
                         popup = await self.page.context.new_page()
                         await popup.goto(viewer_url, timeout=50000)
                         await popup.wait_for_load_state("domcontentloaded")
                         await asyncio.sleep(3)  # let canvas render
+                        
+                        # Stop check before screenshot/OCR
+                        if stop_scraper_flag['lien']:
+                            await popup.close()
+                            return data
 
                         # Actual single page from canvas
                         await popup.wait_for_selector("div.vtm_imageClipper canvas", timeout=10000)
                         canvas = await popup.query_selector("div.vtm_imageClipper canvas")
 
                         if canvas:
-                            tmp_img = os.path.join(download_dir, f"tmp_{page_num}.png")
+                            # Use downloads_dir for temp file
+                            tmp_img = self.downloads_dir / f"tmp_{page_num}.png"
                             await canvas.screenshot(path=tmp_img)
 
                             # Convert single PNG to PDF
@@ -703,8 +736,8 @@ class GSCCCAScraper:
 
             df = df[columns]
 
-            # ✅ Use the single output_dir defined in __init__
             if "PDF" in df.columns:
+                # IMPORTANT: downloads_dir ab Project Root ke relative hai
                 df["PDF"] = df["PDF"].apply(
                     lambda x: f'=HYPERLINK("file:///{os.path.join(self.downloads_dir, x).replace(os.sep, "/")}", "{x}")'
                     if isinstance(x, str) and x.strip() else ""
@@ -714,8 +747,8 @@ class GSCCCAScraper:
             base, ext = os.path.splitext(filename)
             final_filename = f"{base}_{ts}{ext}"
             
-            # ✅ Use self.output_dir instead of creating new one
-            final_path = self.output_dir / final_filename
+            # Use self.excel_output_dir (jo Project Root ke andar hai)
+            final_path = self.excel_output_dir / final_filename
 
             with pd.ExcelWriter(final_path, engine="openpyxl") as writer:
                 df.to_excel(writer, index=False)
@@ -802,6 +835,13 @@ class GSCCCAScraper:
                     if await self.login():
                         await self.page.wait_for_timeout(self.time_sleep())
                         await self.dump_cookies()
+            
+            # Global stop check before starting core work
+            if stop_scraper_flag['lien']:
+                console.print("[yellow]Scraper started but received immediate stop signal. Exiting.[/yellow]")
+                await browser.close()
+                await playwright.stop()
+                return
 
             # --- Steps using form data ---
             if not await self.check_session():
@@ -810,7 +850,21 @@ class GSCCCAScraper:
                 await self.page.wait_for_timeout(self.time_sleep())
 
             await self.start_search()
+            
+            if stop_scraper_flag['lien']:
+                console.print("[yellow]Stop signal received after search start. Exiting.[/yellow]")
+                await browser.close()
+                await playwright.stop()
+                return
+                
             await self.get_search_results()
+            
+            if stop_scraper_flag['lien']:
+                console.print("[yellow]Stop signal received after search results. Exiting.[/yellow]")
+                await browser.close()
+                await playwright.stop()
+                return
+                
             await self.process_rp_details()
             self.save_to_excel()
 
@@ -840,6 +894,3 @@ if __name__ == "__main__":
         traceback.print_exc()
     finally:
         console.print("[bold green]Exiting...[/bold green]")
-        
-        
-        
