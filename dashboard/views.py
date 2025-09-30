@@ -13,6 +13,8 @@ from django.views.decorators.csrf import csrf_exempt
 from dashboard.models import LienData, RealEstateData
 from openpyxl.styles import Font, PatternFill, Alignment
 
+# New import from the neutral state file
+from dashboard.utils.state import stop_scraper_flag
 from dashboard.utils.init_scraper import (run_lien_scraper, 
                                           run_realestate_scraper)
 
@@ -35,15 +37,17 @@ def start_scraper(request):
     try:
         if request.method == 'POST':
             data = request.POST.dict()
-            raw_to_date = request.POST.get("to_date")
-            raw_from_date = request.POST.get("from_date")
-            to_date_mmddyyyy = dt.date.fromisoformat(raw_to_date).strftime("%m/%d/%Y") if raw_to_date else ""
-            from_date_mmddyyyy = dt.date.fromisoformat(raw_from_date).strftime("%m/%d/%Y") if raw_from_date else ""
-            data['to_date'] = to_date_mmddyyyy
-            data['from_date'] = from_date_mmddyyyy
-
             scraper_type = data.get('scraper_type')
+            
             if scraper_type == 'lien':
+                # Convert dates for lien scraper
+                raw_to_date = request.POST.get("to_date")
+                raw_from_date = request.POST.get("from_date")
+                to_date_mmddyyyy = dt.date.fromisoformat(raw_to_date).strftime("%m/%d/%Y") if raw_to_date else ""
+                from_date_mmddyyyy = dt.date.fromisoformat(raw_from_date).strftime("%m/%d/%Y") if raw_from_date else ""
+                data['to_date'] = to_date_mmddyyyy
+                data['from_date'] = from_date_mmddyyyy
+
                 thread = threading.Thread(
                     target=run_lien_scraper,
                     kwargs={"params": data},
@@ -51,12 +55,41 @@ def start_scraper(request):
                 )
                 msg = 'Lien scraper started'
             elif scraper_type == 'realestate':
-                thread = threading.Thread(target=run_realestate_scraper)
+                # Real estate scraper now accepts parameters from the form
+                thread = threading.Thread(
+                    target=run_realestate_scraper, 
+                    kwargs={"params": data},
+                    daemon=True,
+                )
                 msg = 'Real estate scraper started'
             thread.start()
             return JsonResponse({'status': msg}, status=200)
     except Exception as e:
         logger.error(f"Error starting scraper: {e}\n{traceback.format_exc()}") 
+        return JsonResponse({'error': f'Invalid request: \n{e}'}, status=400)
+
+
+@csrf_exempt
+def stop_scraper(request):
+    """View to set the global stop flag for a specific scraper type."""
+    try:
+        if request.method == 'POST':
+            # Note: We use json.loads(request.body) for the stopScraper JavaScript fetch call
+            data = json.loads(request.body)
+            scraper_type = data.get('scraper_type')
+            
+            if scraper_type == 'lien':
+                stop_scraper_flag['lien'] = True
+                msg = 'Lien scraper stop signal sent. It will stop after the current step.'
+            elif scraper_type == 'realestate':
+                stop_scraper_flag['realestate'] = True
+                msg = 'Real estate scraper stop signal sent. It will stop after the current step.'
+            else:
+                return JsonResponse({'error': 'Invalid scraper type'}, status=400)
+            
+            return JsonResponse({'status': msg}, status=200)
+    except Exception as e:
+        logger.error(f"Error stopping scraper: {e}\n{traceback.format_exc()}")
         return JsonResponse({'error': f'Invalid request: \n{e}'}, status=400)
 
 
@@ -371,6 +404,3 @@ def download_all_realestate_excel(request):
     except Exception as e:
         logger.error(f"Error downloading all real estate Excel: {e}")
         return JsonResponse({'error': str(e)}, status=500)
-    
-    
-    

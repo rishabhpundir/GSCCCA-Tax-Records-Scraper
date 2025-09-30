@@ -5,15 +5,12 @@
   <meta charset="UTF-8">
   <title>Data Scraper Dashboard | GSCCCA</title>
   
-  <!-- Preconnect to CDNs for better performance -->
   <link rel="preconnect" href="https://cdn.tailwindcss.com">
   <link rel="preconnect" href="https://cdnjs.cloudflare.com/ajax/libs">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   
-  <!-- Prevent favicon 404 error -->
   <link rel="icon" href="data:,">
   
-  <!-- TailwindCSS with fallback -->
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
     // Fallback if Tailwind fails to load
@@ -25,10 +22,8 @@
     }, 3000);
   </script>
   
-  <!-- Three.js -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   
-  <!-- Font Awesome with local fallback -->
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
   <style>
     /* Font Awesome fallback */
@@ -42,7 +37,6 @@
     .fa-solid:before { font-family: 'Font Awesome 6 Free'; font-weight: 900; }
   </style>
   
-  <!-- Google Fonts -->
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   
   <style>
@@ -83,12 +77,9 @@
   </style>
 </head>
 <body class="antialiased">
-  <!-- Particles Background -->
   <div id="particles-js"></div>
 
-  <!-- Main Container -->
   <div class="max-w-7xl mx-auto px-4 py-8">
-    <!-- Header -->
     <header class="text-center mb-12 fade-in">
       <div class="floating inline-block mb-6">
         <div class="w-20 h-20 mx-auto bg-gradient-to-br from-green-400 to-blue-500 rounded-2xl flex items-center justify-center shadow-2xl">
@@ -103,7 +94,6 @@
       </p>
     </header>
 
-    <!-- Status Message -->
     <div id="statusMessage" class="glass-card p-4 mb-8 text-center transition-all duration-500 opacity-0 hidden">
       <div class="flex items-center justify-center">
         <i class="fas fa-info-circle mr-3"></i>
@@ -112,7 +102,6 @@
       <div class="progress-bar"></div>
     </div>
 
-    <!-- Stats Cards -->
     <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
       <div class="glass-card p-6 text-center fade-in" style="animation-delay: .1s;">
         <div class="w-14 h-14 mx-auto bg-green-500/20 rounded-xl flex items-center justify-center mb-4">
@@ -137,7 +126,6 @@
       </div>
     </div>
 
-    <!-- Control Panel -->
     <div class="glass-card p-8 mb-12 fade-in">
       <h2 class="text-2xl font-semibold mb-6 text-center flex items-center justify-center">
         <i class="fas fa-play-circle mr-3 text-blue-400"></i>
@@ -145,7 +133,6 @@
       </h2>
       
       <div class="flex flex-col md:flex-row justify-center gap-6">
-        <!-- Lien button now opens modal -->
         <button onclick="openModal('lien')" class="scraper-btn group">
           <div class="bg-gradient-to-br from-green-500 to-green-600 px-8 py-4 rounded-xl text-lg font-semibold text-white flex items-center justify-center">
             <i class="fas fa-play mr-3 transform group-hover:scale-110 transition-transform"></i>
@@ -153,16 +140,29 @@
           </div>
         </button>
         
-        <!-- Real Estate unchanged -->
-        <button onclick="startScraper('realestate')" class="scraper-btn group">
+        <button onclick="openModal('realestate')" class="scraper-btn group">
           <div class="bg-gradient-to-br from-blue-500 to-blue-600 px-8 py-4 rounded-xl text-lg font-semibold text-white flex items-center justify-center">
             <i class="fas fa-play mr-3 transform group-hover:scale-110 transition-transform"></i>
             <span>Start Real Estate Scraper</span>
           </div>
         </button>
       </div>
-      
-      <!-- Excel Download Buttons -->
+
+      <div class="flex flex-col md:flex-row justify-center gap-6 mt-4">
+          <button onclick="stopScraper('lien')" class="scraper-btn group">
+              <div class="bg-gradient-to-br from-red-500 to-red-600 px-8 py-4 rounded-xl text-lg font-semibold text-white flex items-center justify-center">
+                  <i class="fas fa-stop mr-3 transform group-hover:scale-110 transition-transform"></i>
+                  <span>Stop Lien Scraper</span>
+              </div>
+          </button>
+          <button onclick="stopScraper('realestate')" class="scraper-btn group">
+              <div class="bg-gradient-to-br from-orange-500 to-orange-600 px-8 py-4 rounded-xl text-lg font-semibold text-white flex items-center justify-center">
+                  <i class="fas fa-stop mr-3 transform group-hover:scale-110 transition-transform"></i>
+                  <span>Stop Real Estate Scraper</span>
+              </div>
+          </button>
+      </div>
+        
       <div class="flex flex-col md:flex-row justify-center gap-4 mt-6">
         <button onclick="downloadAllLienExcel()" class="scraper-btn group">
           <div class="bg-gradient-to-br from-green-400 to-green-500 px-6 py-3 rounded-xl text-md font-semibold text-white flex items-center justify-center">
@@ -187,9 +187,7 @@
       </div>
     </div>
 
-    <!-- Data Tables -->
     <div class="space-y-8">
-      <!-- Lien Data -->
       <div class="glass-card p-6 fade-in">
         <div class="flex items-center justify-between mb-6">
           <h2 class="text-2xl font-semibold flex items-center">
@@ -269,7 +267,6 @@
         {% endif %}
       </div>
 
-      <!-- Real Estate Data -->
       <div class="glass-card p-6 fade-in">
         <div class="flex items-center justify-between mb-6">
           <h2 class="text-2xl font-semibold flex items-center">
@@ -286,7 +283,6 @@
           </div>
         </div>
         
-        <!-- Detailed View -->
         <div id="realEstateDetailedView">
           <div class="table-container">
             <div class="overflow-x-auto rounded-2xl">
@@ -346,7 +342,6 @@
           </div>
         </div>
 
-        <!-- Compact View (Hidden by default) -->
         <div id="realEstateCompactView" class="hidden">
           <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {% for item in realestate_data %}
@@ -378,24 +373,17 @@
       </div>
     </div>
 
-    <!-- Footer -->
     <footer class="text-center mt-16 py-8 text-gray-500 text-sm">
       <p>GSCCCA Data Scraper Dashboard • Built with Django & Tailwind CSS</p>
       <p class="mt-2">© 2025 Tax Records Automation System</p>
     </footer>
   </div>
 
-  <!-- =========================
-       Lien Scraper Modal
-  ========================== -->
   <div id="lienModal" class="fixed inset-0 z-[100] modal-hidden" aria-hidden="true" aria-labelledby="lienModalTitle" role="dialog">
-    <!-- Backdrop -->
-    <div id="lienModalBackdrop" class="absolute inset-0 bg-black/60" onclick="closeModal()"></div>
+    <div id="lienModalBackdrop" class="absolute inset-0 bg-black/60" onclick="closeModal('lien')"></div>
 
-    <!-- Panel -->
     <div class="relative z-[101] min-h-screen flex items-center justify-center p-4">
       <div id="lienModalPanel" class="w-full max-w-2xl glass-card rounded-2xl shadow-2xl modal-enter">
-        <!-- Header -->
         <div class="px-6 py-4 border-b border-white/10 flex items-center justify-between">
           <div class="flex items-center gap-3">
             <span class="w-9 h-9 rounded-lg bg-green-500/20 text-green-300 flex items-center justify-center">
@@ -406,19 +394,17 @@
               <p class="text-xs text-gray-400">Fill the search parameters and click <b>Start Scraping</b></p>
             </div>
           </div>
-          <button type="button" class="text-gray-400 hover:text-white" onclick="closeModal()" aria-label="Close modal">
+          <button type="button" class="text-gray-400 hover:text-white" onclick="closeModal('lien')" aria-label="Close modal">
             <i class="fa-solid fa-xmark text-xl"></i>
           </button>
         </div>
 
-        <!-- Body -->
         <form id="lienForm" class="px-6 py-5 space-y-4" onsubmit="submitLienForm(event)">
           {% csrf_token %}
           <div id="lienFormFields" class="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <!-- Your updated fields -->
             <div class="md:col-span-2">
               <label class="block text-sm text-gray-300 mb-1">County</label>
-              <select name="county" class="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500">
+              <select name="county" class="w-full p-2 rounded-lg bg-gray-800 border border-gray-700 text-white focus:ring-green-500 focus:border-green-500">
                 <option value="">-- Select County --</option>
                 <option value="-1">All Participating Counties</option>
             <option value="1">APPLING</option>
@@ -585,7 +571,7 @@
 
             <div class="md:col-span-2">
               <label class="block text-sm text-gray-300 mb-1">Instrument</label>
-              <select name="instrument_type" class="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500">
+              <select name="instrument_type" class="w-full p-2 rounded-lg bg-gray-800 border border-gray-700 text-white focus:ring-green-500 focus:border-green-500">
                 <option value="">-- Any --</option>
                 <option value="1">AFFIDAVIT</option>
                 <option value="13">Agreement</option>
@@ -646,7 +632,7 @@
               </div>
             </div>
 
-            <div class="md:col-span-2">
+            <div class="md:col-span-2 flex items-center gap-6">
               <label for="MaxRows" class="block text-sm font-semibold mb-2 text-gray-300">Display (results per page)</label>
               <select id="MaxRows" name="max_rows" class="w-fit p-2 rounded-lg bg-gray-800 border border-gray-700 text-white focus:ring-green-500 focus:border-green-500">
                 <option value="5">5</option>
@@ -656,21 +642,21 @@
                 <option value="75">75</option>
                 <option value="100" selected>100</option>
               </select>
-            </div>
-          </div>
 
-          <div class="md:col-span-2">
-              <label for="TableType" class="block text-sm font-semibold mb-2 text-gray-300">Table Display Type</label>
+
+          <label for="TableType" class="block text-sm font-semibold mb-2 text-gray-300">Table Display Type</label>
               <select id="TableType" name="table_type" class="w-fit p-2 rounded-lg bg-gray-800 border border-gray-700 text-white focus:ring-green-500 focus:border-green-500">
                   <option value="1" selected>Regular</option>
                   <option value="2">1 Line</option>
                   <option value="3">1 Line No Wrap</option>
               </select>
+          
+            </div>
           </div>
 
-          <!-- Footer actions -->
+
           <div class="pt-3 flex items-center justify-end gap-3">
-            <button type="button" class="px-4 py-2 rounded-lg border border-white/10 text-gray-300 hover:bg-white/5" onclick="closeModal()">
+            <button type="button" class="px-4 py-2 rounded-lg border border-white/10 text-gray-300 hover:bg-white/5" onclick="closeModal('lien')">
               Cancel
             </button>
             <button type="submit" class="px-4 py-2 rounded-lg bg-gradient-to-r from-green-500 to-green-600 text-white font-medium hover:from-green-600 hover:to-green-700">
@@ -681,11 +667,315 @@
       </div>
     </div>
   </div>
-  <!-- =========================
-       /Modal
-  ========================== -->
+  <div id="realestateModal" class="fixed inset-0 z-[100] modal-hidden" aria-hidden="true" aria-labelledby="realestateModalTitle" role="dialog">
+    <div id="realestateModalBackdrop" class="absolute inset-0 bg-black/60" onclick="closeModal('realestate')"></div>
 
-  <!-- JavaScript -->
+    <div class="relative z-[101] min-h-screen flex items-center justify-center p-4">
+      <div id="realestateModalPanel" class="w-full max-w-2xl glass-card rounded-2xl shadow-2xl modal-enter">
+        <div class="px-6 py-4 border-b border-white/10 flex items-center justify-between">
+          <div class="flex items-center gap-3">
+            <span class="w-9 h-9 rounded-lg bg-blue-500/20 text-blue-300 flex items-center justify-center">
+              <i class="fa-solid fa-home"></i>
+            </span>
+            <div>
+              <h3 id="realestateModalTitle" class="text-xl font-semibold">Start Real Estate Scraper</h3>
+              <p class="text-xs text-gray-400">Fill the search parameters and click <b>Start Scraping</b></p>
+            </div>
+          </div>
+          <button type="button" class="text-gray-400 hover:text-white" onclick="closeModal('realestate')" aria-label="Close modal">
+            <i class="fa-solid fa-xmark text-xl"></i>
+          </button>
+        </div>
+
+        <form id="realestateForm" class="px-6 py-5 space-y-4" onsubmit="submitRealEstateForm(event)">
+          {% csrf_token %}
+          <input type="hidden" name="scraper_type" value="realestate">
+          
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label for="realestatePartyType" class="block text-sm text-gray-300 mb-1">Party Type</label>
+              <select id="realestatePartyType" name="txtPartyType" class="w-full p-2 rounded-lg bg-gray-800 border border-gray-700 text-white focus:ring-green-500 focus:border-green-500">
+                <option value="2" selected>All Parties</option>
+                <option value="1">Grantor</option>
+                <option value="0">Grantee</option>
+              </select>
+            </div>
+            
+            <div>
+              <label for="realestateInstrumentType" class="block text-sm text-gray-300 mb-1">Instrument Type</label>
+              <select id="realestateCounty" name="intCountyID" class="w-full p-2 rounded-lg bg-gray-800 border border-gray-700 text-white focus:ring-blue-500 focus:border-blue-500">
+                <option value="ALL" selected>All Instruments</option>
+                <option value="15">AFFIDAVIT</option>
+                <option value="16">CONTRACT</option>
+                <option value="17">ASSIGNMENT</option>
+                <option value="18">NOTICE OF BANKRUPTCY</option>
+                <option value="19">BOUNDARY LINE AGREEMENT</option>
+                <option value="20">BOND</option>
+                <option value="21">CANCELLATION</option>
+                <option value="22">CERTIFICATION</option>
+                <option value="23">CONDOMINIUM DECLARATION</option>
+                <option value="24">DECLARATION RESTRICTIVE COVENANTS</option>
+                <option value="25">EASEMENT</option>
+                <option value="26">ESTATE DOCUMENTATION</option>
+                <option value="27">DEED - FROM ESTATE</option>
+                <option value="28">DEED - FORECLOSURE</option>
+                <option value="29">DEED OF GIFT</option>
+                <option value="30">DEED - GAS, OIL, MINERAL</option>
+                <option value="31">LEASE - GAS, OIL, MINERAL</option>
+                <option value="32">LEASE</option>
+                <option value="33">LIEN</option>
+                <option value="34">MISCELLANEOUS</option>
+                <option value="35">MATERIALMANS LIEN</option>
+                <option value="36">NOTICE</option>
+                <option value="37">OPTION</option>
+                <option value="38">COURT ORDER</option>
+                <option value="39">POWER OF ATTORNEY</option>
+                <option value="40">QUIT CLAIM DEED</option>
+                <option value="41">TITLE REGISTERY TRANSFER</option>
+                <option value="42">RELEASE</option>
+                <option value="43">REVOCATION OF POWER OF ATTORNEY</option>
+                <option value="44">RIGHT OF WAY DEED</option>
+                <option value="45">SECURITY DEED</option>
+                <option value="46">SHERIFF'S DEED</option>
+                <option value="47">TAX SALE DEED</option>
+                <option value="48">TIMBER DEED</option>
+                <option value="49">TIMBER LEASE</option>
+                <option value="50">TRUSTEE'S DEED</option>
+                <option value="51">WARRANTY DEED</option>
+              </select>
+            </div>
+
+            <div class="md:col-span-2">
+                <label for="realestateCounty" class="block text-sm text-gray-300 mb-1">County</label>
+                <select id="realestateCounty" name="intCountyID" class="w-full p-2 rounded-lg bg-gray-800 border border-gray-700 text-white focus:ring-green-500 focus:border-green-500">
+                    <option value="-1" >All Counties</option>
+<option value='1' >APPLING</option>
+<option value='2' >ATKINSON</option>
+<option value='3' >BACON</option>
+<option value='4' >BAKER</option>
+<option value='5' >BALDWIN</option>
+<option value='6' >BANKS</option>
+<option value='7' >BARROW</option>
+<option value='8' >BARTOW</option>
+<option value='9' >BEN HILL</option>
+<option value='10' >BERRIEN</option>
+<option value='11' >BIBB</option>
+<option value='12' >BLECKLEY</option>
+<option value='13' >BRANTLEY</option>
+<option value='14' >BROOKS</option>
+<option value='15' >BRYAN</option>
+<option value='16' >BULLOCH</option>
+<option value='17' >BURKE</option>
+<option value='18' >BUTTS</option>
+<option value='19' >CALHOUN</option>
+<option value='20' >CAMDEN</option>
+<option value='21' >CANDLER</option>
+<option value='22' >CARROLL</option>
+<option value='23' >CATOOSA</option>
+<option value='24' >CHARLTON</option>
+<option value='25' >CHATHAM</option>
+<option value='26' >CHATTAHOOCHEE</option>
+<option value='27' >CHATTOOGA</option>
+<option value='28' >CHEROKEE</option>
+<option value='29' >CLARKE</option>
+<option value='30' >CLAY</option>
+<option value='31' >CLAYTON</option>
+<option value='32' >CLINCH</option>
+<option value='33' >COBB</option>
+<option value='34' >COFFEE</option>
+<option value='35' >COLQUITT</option>
+<option value='36' >COLUMBIA</option>
+<option value='37' >COOK</option>
+<option value='38' >COWETA</option>
+<option value='39' >CRAWFORD</option>
+<option value='40' >CRISP</option>
+<option value='41' >DADE</option>
+<option value='42' >DAWSON</option>
+<option value='43' >DECATUR</option>
+<option value='44' >DEKALB</option>
+<option value='45' >DODGE</option>
+<option value='46' >DOOLY</option>
+<option value='47' >DOUGHERTY</option>
+<option value='48' >DOUGLAS</option>
+<option value='49' >EARLY</option>
+<option value='50' >ECHOLS</option>
+<option value='51' >EFFINGHAM</option>
+<option value='52' >ELBERT</option>
+<option value='53' >EMANUEL</option>
+<option value='54' >EVANS</option>
+<option value='55' >FANNIN</option>
+<option value='56' >FAYETTE</option>
+<option value='57' >FLOYD</option>
+<option value='58' >FORSYTH</option>
+<option value='59' >FRANKLIN</option>
+<option value='60' >FULTON</option>
+<option value='61' >GILMER</option>
+<option value='62' >GLASCOCK</option>
+<option value='63' >GLYNN</option>
+<option value='64' >GORDON</option>
+<option value='65' >GRADY</option>
+<option value='66' >GREENE</option>
+<option value='67' >GWINNETT</option>
+<option value='68' >HABERSHAM</option>
+<option value='69' >HALL</option>
+<option value='70' >HANCOCK</option>
+<option value='71' >HARALSON</option>
+<option value='72' >HARRIS</option>
+<option value='73' >HART</option>
+<option value='74' >HEARD</option>
+<option value='75' >HENRY</option>
+<option value='76' >HOUSTON</option>
+<option value='77' >IRWIN</option>
+<option value='78' >JACKSON</option>
+<option value='79' >JASPER</option>
+<option value='80' >JEFF DAVIS</option>
+<option value='81' >JEFFERSON</option>
+<option value='82' >JENKINS</option>
+<option value='83' >JOHNSON</option>
+<option value='84' >JONES</option>
+<option value='85' >LAMAR</option>
+<option value='86' >LANIER</option>
+<option value='87' >LAURENS</option>
+<option value='88' >LEE</option>
+<option value='89' >LIBERTY</option>
+<option value='90' >LINCOLN</option>
+<option value='91' >LONG</option>
+<option value='92' >LOWNDES</option>
+<option value='93' >LUMPKIN</option>
+<option value='94' >MACON</option>
+<option value='95' >MADISON</option>
+<option value='96' >MARION</option>
+<option value='97' >MCDUFFIE</option>
+<option value='98' >MCINTOSH</option>
+<option value='99' >MERIWETHER</option>
+<option value='100' >MILLER</option>
+<option value='101' >MITCHELL</option>
+<option value='102' >MONROE</option>
+<option value='103' >MONTGOMERY</option>
+<option value='104' >MORGAN</option>
+<option value='105' >MURRAY</option>
+<option value='106' >MUSCOGEE</option>
+<option value='107' >NEWTON</option>
+<option value='108' >OCONEE</option>
+<option value='109' >OGLETHORPE</option>
+<option value='110' >PAULDING</option>
+<option value='111' >PEACH</option>
+<option value='112' >PICKENS</option>
+<option value='113' >PIERCE</option>
+<option value='114' >PIKE</option>
+<option value='115' >POLK</option>
+<option value='116' >PULASKI</option>
+<option value='117' >PUTNAM</option>
+<option value='118' >QUITMAN</option>
+<option value='119' >RABUN</option>
+<option value='120' >RANDOLPH</option>
+<option value='121' >RICHMOND</option>
+<option value='122' >ROCKDALE</option>
+<option value='123' >SCHLEY</option>
+<option value='124' >SCREVEN</option>
+<option value='125' >SEMINOLE</option>
+<option value='126' >SPALDING</option>
+<option value='127' >STEPHENS</option>
+<option value='128' >STEWART</option>
+<option value='129' >SUMTER</option>
+<option value='130' >TALBOT</option>
+<option value='131' >TALIAFERRO</option>
+<option value='132' >TATTNALL</option>
+<option value='133' >TAYLOR</option>
+<option value='134' >TELFAIR</option>
+<option value='135' >TERRELL</option>
+<option value='136' >THOMAS</option>
+<option value='137' >TIFT</option>
+<option value='138' >TOOMBS</option>
+<option value='139' >TOWNS</option>
+<option value='140' >TREUTLEN</option>
+<option value='141' >TROUP</option>
+<option value='142' >TURNER</option>
+<option value='143' >TWIGGS</option>
+<option value='144' >UNION</option>
+<option value='145' >UPSON</option>
+<option value='146' >WALKER</option>
+<option value='147' >WALTON</option>
+<option value='148' >WARE</option>
+<option value='149' >WARREN</option>
+<option value='150' >WASHINGTON</option>
+<option value='151' >WAYNE</option>
+<option value='152' >WEBSTER</option>
+<option value='153' >WHEELER</option>
+<option value='154' >WHITE</option>
+<option value='155' >WHITFIELD</option>
+<option value='156' >WILCOX</option>
+<option value='157' >WILKES</option>
+<option value='158' >WILKINSON</option>
+<option value='159' >WORTH</option>
+                </select>
+            </div>
+
+            <div class="md:col-span-2">
+              <label for="realestateSearchName" class="block text-sm font-semibold mb-1 text-gray-300">Search Name</label>
+              <input type="text" id="realestateSearchName" name="txtSearchName" maxlength="70" class="w-full p-2 rounded-lg bg-gray-800 border border-gray-700 text-white placeholder-gray-500 focus:ring-blue-500 focus:border-blue-500" placeholder="Last name, First name">
+              <div class="text-xs text-gray-500 mt-1">(For individuals, enter last name, first name.)</div>
+            </div>
+
+            <div class="md:col-span-2">
+              <label for="realestateFromDate" class="block text-sm font-semibold mb-1 text-gray-300">Date Range (mm/dd/yyyy)</label>
+              <div class="flex items-center gap-2">
+                <input type="date" id="realestateFromDate" name="txtFromDate" class="w-full p-2 rounded-lg bg-gray-800 border border-gray-700 text-white focus:ring-blue-500 focus:border-blue-500" placeholder="mm/dd/yyyy">
+                <span class="text-gray-400">to</span>
+                <input type="date" id="realestateToDate" name="txtToDate" class="w-full p-2 rounded-lg bg-gray-800 border border-gray-700 text-white focus:ring-blue-500 focus:border-blue-500" placeholder="mm/dd/yyyy">
+              </div>
+            </div>
+
+            <div class="md:col-span-2">
+              <label class="block text-sm text-gray-300 mb-1">Include neighboring counties in the search?</label>
+              <div class="flex items-center space-x-4">
+                <label class="flex items-center">
+                  <input class="w-4 h-4 text-blue-500 bg-gray-700 border-gray-600 focus:ring-blue-500" type="radio" name="bolInclude" value="1">
+                  <span class="ml-2 text-sm text-gray-300">Yes</span>
+                </label>
+                <label class="flex items-center">
+                  <input class="w-4 h-4 text-blue-500 bg-gray-700 border-gray-600 focus:ring-blue-500" type="radio" name="bolInclude" value="0" checked>
+                  <span class="ml-2 text-sm text-gray-300">No</span>
+                </label>
+              </div>
+            </div>
+            
+            <div class="md:col-span-2 flex items-center gap-6">
+              <div>
+                <label for="realestateMaxRows" class="block text-sm font-semibold mb-1 text-gray-300">Display (results per page)</label>
+                <select id="realestateMaxRows" name="MaxRows" class="w-fit p-2 rounded-lg bg-gray-800 border border-gray-700 text-white focus:ring-blue-500 focus:border-blue-500">
+                  <option value="5">5</option>
+                  <option value="10">10</option>
+                  <option value="25">25</option>
+                  <option value="50">50</option>
+                  <option value="75">75</option>
+                  <option value="100" selected>100</option>
+                </select>
+              </div>
+              
+              <div>
+                <label for="realestateTableType" class="block text-sm font-semibold mb-1 text-gray-300">Table Display Type</label>
+                <select id="realestateTableType" name="TableType" class="w-fit p-2 rounded-lg bg-gray-800 border border-gray-700 text-white focus:ring-blue-500 focus:border-blue-500">
+                    <option value="1" selected>Regular</option>
+                    <option value="2">1 Line</option>
+                    <option value="3">1 Line No Wrap</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <div class="pt-3 flex items-center justify-end gap-3">
+              <button type="button" class="px-4 py-2 rounded-lg border border-white/10 text-gray-300 hover:bg-white/5" onclick="closeModal('realestate')">
+                  Cancel
+              </button>
+              <button type="submit" class="px-4 py-2 rounded-lg bg-gradient-to-r from-blue-500 to-blue-600 text-white font-medium hover:from-blue-600 hover:to-blue-700">
+                  <i class="fa-solid fa-play mr-2"></i> Start Scraping
+              </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
   <script src="https://cdn.jsdelivr.net/particles.js/2.0.0/particles.min.js"></script>
   <script>
     // Initialize particles background
@@ -720,45 +1010,48 @@
 
     /* -------- Modal controls ---------- */
     function openModal(type) {
-      if (type !== 'lien') return; // we only modal-ize lien
-      const root = document.getElementById('lienModal');
-      const panel = document.getElementById('lienModalPanel');
-      const backdrop = document.getElementById('lienModalBackdrop');
-
+      const modalId = type === 'lien' ? 'lienModal' : 'realestateModal';
+      const root = document.getElementById(modalId);
+      if (!root) return;
+    
+      const panel = document.getElementById(modalId + 'Panel');
+      const backdrop = document.getElementById(modalId + 'Backdrop');
+    
       root.classList.remove('modal-hidden');
       root.classList.add('modal-show');
-      // animate
-      panel.classList.remove('modal-enter'); // reset
-      void panel.offsetWidth; // reflow
+        
+      panel.classList.remove('modal-enter');
+      void panel.offsetWidth;
       panel.classList.add('modal-enter-active');
-
+    
       backdrop.classList.add('backdrop-enter-active');
-
-      // accessibility + scroll lock
+    
       root.setAttribute('aria-hidden', 'false');
       document.body.style.overflow = 'hidden';
-      // focus first field
+    
       setTimeout(() => {
-        const first = document.querySelector('#lienForm input, #lienForm select, #lienForm textarea, #lienForm button');
-        if (first) first.focus();
+          const first = document.querySelector(`#${modalId} input, #${modalId} select, #${modalId} textarea, #${modalId} button`);
+          if (first) first.focus();
       }, 50);
     }
-
-    function closeModal() {
-      const root = document.getElementById('lienModal');
-      const panel = document.getElementById('lienModalPanel');
-      const backdrop = document.getElementById('lienModalBackdrop');
-
-      // reverse-ish animation
+    
+    function closeModal(type) {
+      const modalId = type === 'lien' ? 'lienModal' : 'realestateModal';
+      const root = document.getElementById(modalId);
+      if (!root) return;
+        
+      const panel = document.getElementById(modalId + 'Panel');
+      const backdrop = document.getElementById(modalId + 'Backdrop');
+    
       panel.classList.remove('modal-enter-active');
       panel.classList.add('modal-enter');
       backdrop.classList.remove('backdrop-enter-active');
-
+    
       setTimeout(() => {
-        root.classList.remove('modal-show');
-        root.classList.add('modal-hidden');
-        root.setAttribute('aria-hidden', 'true');
-        document.body.style.overflow = '';
+          root.classList.remove('modal-show');
+          root.classList.add('modal-hidden');
+          root.setAttribute('aria-hidden', 'true');
+          document.body.style.overflow = '';
       }, 180);
     }
 
@@ -790,7 +1083,7 @@
       .then(r => r.json())
       .then(resp => {
         showStatus(resp.status || 'Lien scraper started successfully', 'green');
-        closeModal();
+        closeModal('lien');
       })
       .catch(err => {
         console.error(err);
@@ -803,6 +1096,87 @@
       });
     }
     // ========= /CHANGED =========
+
+    // New function for real estate form submission
+    function submitRealEstateForm(e) {
+        e.preventDefault();
+        const formEl = document.getElementById('realestateForm');
+        const fd = new FormData(formEl);
+        
+        // Date format ko mm/dd/yyyy mein convert karein
+        const fromDate = fd.get('txtFromDate');
+        if (fromDate) {
+          const formattedFromDate = formatDateToMMDDYYYY(fromDate);
+          fd.set('from_date', formattedFromDate);
+        }
+    
+        const toDate = fd.get('txtToDate');
+        if (toDate) {
+          const formattedToDate = formatDateToMMDDYYYY(toDate);
+          fd.set('to_date', formattedToDate);
+        }
+
+        fd.set('scraper_type', 'realestate');
+        
+        showStatus('Starting real estate scraper...', 'blue');
+
+        const buttons = document.querySelectorAll('button');
+        buttons.forEach(btn => btn.disabled = true);
+        isRealEstateScraperRunning = true;
+
+        fetch('/start-scraper/', {
+            method: 'POST',
+            headers: { 'X-CSRFToken': getCookie('csrftoken') },
+            body: fd
+        })
+        .then(r => r.json())
+        .then(resp => {
+            showStatus(resp.status || 'Real estate scraper started successfully', 'green');
+            closeModal('realestate');
+        })
+        .catch(err => {
+            console.error(err);
+            showStatus('Error starting real estate scraper: ' + err, 'red');
+            isRealEstateScraperRunning = false;
+        })
+        .finally(() => {
+            buttons.forEach(btn => btn.disabled = false);
+        });
+    }
+
+    function stopScraper(type) {
+      console.log(`Sending stop signal for ${type} scraper...`);
+      showStatus(`Stopping ${type} scraper...`, 'red');
+      
+      // Use JSON for stop signal and set the Content-Type header
+      const payload = JSON.stringify({ scraper_type: type });
+
+      fetch('/stop-scraper/', {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json', // <--- FIX: This header is crucial for Django to parse request.body correctly
+          'X-CSRFToken': getCookie('csrftoken') 
+        },
+        body: payload // <--- FIX: Sending JSON payload
+      })
+      .then(response => {
+        if (!response.ok) {
+          // Check for JSON error response from Django view
+          return response.json().then(error => {
+            throw new Error(error.error || `Server returned error status ${response.status}`);
+          });
+        }
+        return response.json();
+      })
+      .then(data => {
+        showStatus(data.status || `${type} scraper stopped successfully`, 'green');
+      })
+      .catch(error => {
+        console.error('Error stopping scraper:', error);
+        showStatus(`Error stopping ${type} scraper: ` + error.message, 'red');
+      });
+    }
+
 
     function animateCounters() {
       const counters = document.querySelectorAll('.data-counter');
@@ -849,10 +1223,13 @@
       if (type === 'lien') { isLienScraperRunning = true; } else { isRealEstateScraperRunning = true; }
       if (isLienScraperRunning || isRealEstateScraperRunning) console.log("started polling...") //startPolling();
       showStatus(`Starting ${type} scraper...`, 'blue');
+      const formData = new FormData();
+      formData.append("scraper_type", type);
+
       fetch('/start-scraper/', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken') },
-        body: JSON.stringify({scraper_type: type})
+        headers: { 'X-CSRFToken': getCookie('csrftoken') },
+        body: formData
       })
       .then(response => response.json())
       .then(data => { showStatus(data.status || 'Scraper started successfully', 'green'); })
@@ -1120,6 +1497,13 @@
     function escapeHtml(unsafe) {
       if (unsafe === null || unsafe === undefined) return 'Not available';
       return unsafe.toString().replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#039;");
+    }
+
+    // New function to format date
+    function formatDateToMMDDYYYY(dateStr) {
+      if (!dateStr) return '';
+      const [year, month, day] = dateStr.split('-');
+      return `${month}/${day}/${year}`;
     }
   </script>
 </body>
