@@ -595,7 +595,6 @@ class GSCCCAScraper:
                     console.print(f"[red]Error in extract_addresses_from_ocr: {e}[/red]")
                     return [{"address": "", "zipcode": ""} for _ in range(max_addresses)]
             
-
             # ---------- Viewer URL + Single Page PDF ----------
             viewer_script = soup.find("script", string=lambda t: t and "ViewImage" in t)
             if viewer_script:
@@ -635,14 +634,48 @@ class GSCCCAScraper:
                             await popup.close()
                             return data
 
-                        # Actual single page from canvas
-                        await popup.wait_for_selector("div.vtm_imageClipper canvas", timeout=10000)
+                        # NEW: Select "Fit Window" option from zoom dropdown
+                        print("[INFO] Selecting 'Fit Window' option for proper image display...")
+                        
+                        # Wait for the zoom selector to be available
+                        await popup.wait_for_selector("td.vtm_zoomSelectCell select", timeout=10000)
+                        
+                        # Select "Fit Window" option
+                        fit_window_option = "fitwindow"
+                        await popup.select_option("td.vtm_zoomSelectCell select", fit_window_option)
+                        print(f"[INFO] Selected 'Fit Window' option")
+                        
+                        # Wait for the image to adjust to the new zoom level
+                        await asyncio.sleep(3)
+                        
+                        # Additional wait for canvas content to render properly
+                        await popup.wait_for_selector("div.vtm_imageClipper canvas", timeout=10000, state="attached")
+                        await asyncio.sleep(2)
+
                         canvas = await popup.query_selector("div.vtm_imageClipper canvas")
 
                         if canvas:
                             # Use downloads_dir for temp file
                             tmp_img = self.downloads_dir / f"tmp_{page_num}.png"
-                            await canvas.screenshot(path=tmp_img)
+                            
+                            # Take screenshot with full page option if needed
+                            try:
+                                await canvas.screenshot(path=tmp_img, timeout=30000)
+                                print(f"[INFO] Canvas screenshot saved to {tmp_img}")
+                                
+                                # Verify the screenshot was taken properly
+                                if os.path.exists(tmp_img) and os.path.getsize(tmp_img) > 0:
+                                    print(f"[SUCCESS] Screenshot verified - file size: {os.path.getsize(tmp_img)} bytes")
+                                else:
+                                    print("[WARNING] Screenshot file is empty or missing, trying full page screenshot...")
+                                    await popup.screenshot(path=tmp_img, full_page=True, timeout=30000)
+                                    print(f"[INFO] Fallback: Full page screenshot saved to {tmp_img}")
+                                    
+                            except Exception as screenshot_error:
+                                print(f"[WARNING] Canvas screenshot failed: {screenshot_error}. Trying full page screenshot...")
+                                # Fallback: take full page screenshot
+                                await popup.screenshot(path=tmp_img, full_page=True, timeout=30000)
+                                print(f"[INFO] Fallback: Full page screenshot saved to {tmp_img}")
 
                             # Convert single PNG to PDF
                             with open(pdf_path, "wb") as f:
@@ -677,12 +710,14 @@ class GSCCCAScraper:
 
                             os.remove(tmp_img)
                         else:
-                            print("[WARNING] No canvas found in popup")
-                            data["PDF"] = ""
-                            data["OCR_Text"] = ""
-                            data["Address"] = ""
-                            data["Zipcode"] = ""
-                            data["Total Due"] = ""
+                            print("[WARNING] No canvas found in popup, trying full page screenshot...")
+                            # Fallback: take full page screenshot
+                            tmp_img = self.downloads_dir / f"tmp_{page_num}.png"
+                            await popup.screenshot(path=tmp_img, full_page=True)
+                            with open(pdf_path, "wb") as f:
+                                f.write(img2pdf.convert([tmp_img]))
+                            data["PDF"] = pdf_name
+                            print(f" [INFO] PDF saved (full page fallback) → {pdf_path}")
 
                         await popup.close()
 
@@ -697,7 +732,7 @@ class GSCCCAScraper:
                     data["PDF Document URL"] = ""
                     data["PDF"] = ""
                     data["OCR_Text"] = ""
-                    data["Address1"] = ""
+                    data["Address"] = ""
                     data["Zipcode"] = ""
                     data["Total Due"] = ""
             else:
