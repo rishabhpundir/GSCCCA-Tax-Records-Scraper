@@ -297,6 +297,7 @@ class GSCCCAScraper:
         """ Step 5: Process all RP buttons, extract data and save """
         self.results = []
         visited_pages = set()
+        current_page = 1
 
         try:
             while True:
@@ -318,9 +319,9 @@ class GSCCCAScraper:
                 visited_pages.add(first_link)
 
                 total = len(rp_links)
-                print(f"[INFO] Found {total} RP buttons on this page")
+                print(f"[INFO] Found {total} RP buttons on page {current_page}")
 
-                for i in range(min(15,total)):  
+                for i in range(min(total, 100)):  
                     
                     # Add stop check inside the inner loop
                     if stop_scraper_flag['lien']:
@@ -348,14 +349,15 @@ class GSCCCAScraper:
                                 await asyncio.sleep(3)
                         
                         # Add stop check after successful navigation
-                        if stop_scraper_flag['lien']: break
+                        if stop_scraper_flag['lien']: 
+                            break
 
                         data = await self.parse_rp_detail()
                         if data:
                             self.results.append(data)
-                            print(f"[SUCCESS] Saved RP index {i+1} → "
-                                  f"{data.get('Name Selected','N/A')} | "
-                                  f"Book={data.get('Book','')} Page={data.get('Page','')}")
+                            print(f"[SUCCESS] Saved RP index {i+1} on page {current_page} → "
+                                f"{data.get('Name Selected','N/A')} | "
+                                f"Book={data.get('Book','')} Page={data.get('Page','')}")
                     
 
                         # back
@@ -369,7 +371,7 @@ class GSCCCAScraper:
                             await self.page.wait_for_load_state("domcontentloaded")
 
                     except Exception as e:
-                        print(f"[ERROR] Failed at RP index {i}: {e}")
+                        print(f"[ERROR] Failed at RP index {i} on page {current_page}: {e}")
                         try:
                             await self.page.go_back()
                             await self.page.wait_for_load_state("domcontentloaded")
@@ -381,18 +383,59 @@ class GSCCCAScraper:
                 if stop_scraper_flag['lien']:
                     break
 
-                # Pagination: look for "Next" explicitly
-                next_page = await self.page.query_selector("a:has-text('Next')")
-                if next_page and not stop_scraper_flag['lien']:
-                    print("[INFO] Going to next page...")
+                # UPDATED PAGINATION: Use the correct selector from your HTML
+                print(f"[INFO] Looking for next page link... Current page: {current_page}")
+                
+                # Try multiple selectors for next page
+                next_selectors = [
+                    "a[href*='liennamesselected.asp?page=']:has-text('Next Page')",
+                    "font a[href*='liennamesselected.asp?page=']",
+                    "a:has-text('Next Page')",
+                    "font:has-text('Next Page') a"
+                ]
+                
+                next_page_link = None
+                for selector in next_selectors:
+                    next_page_link = await self.page.query_selector(selector)
+                    if next_page_link:
+                        print(f"[INFO] Found next page link with selector: {selector}")
+                        break
+
+                if next_page_link and not stop_scraper_flag['lien']:
+                    current_page += 1
+                    print(f"[INFO] Going to page {current_page}...")
                     try:
-                        await next_page.click()
+                        # Click the next page link
+                        await next_page_link.click()
                         await self.page.wait_for_load_state("domcontentloaded")
+                        await asyncio.sleep(3)  # Wait for page to load completely
+                        
+                        # Verify we're on a new page by checking if RP links are available
+                        await self.page.wait_for_selector("a[href*='lienfinal']", timeout=15000)
+                        print(f"[SUCCESS] Navigated to page {current_page}")
+                        
                     except Exception as e:
                         print(f"[ERROR] Pagination failed: {e}")
-                        break
+                        # Alternative approach: Use JavaScript to navigate
+                        try:
+                            next_href = await next_page_link.get_attribute("href")
+                            if next_href:
+                                # Extract the JavaScript function call
+                                if "fnSubmitThisForm" in next_href:
+                                    # Extract the URL from JavaScript function
+                                    url_match = re.search(r"fnSubmitThisForm\('([^']+)'\)", next_href)
+                                    if url_match:
+                                        next_url = url_match.group(1)
+                                        if not next_url.startswith("http"):
+                                            next_url = "https://search.gsccca.org/Lien/" + next_url
+                                        await self.page.goto(next_url, wait_until="domcontentloaded")
+                                        await self.page.wait_for_selector("a[href*='lienfinal']", timeout=15000)
+                                        print(f"[SUCCESS] Navigated to page {current_page} via JavaScript")
+                        except Exception as js_error:
+                            print(f"[ERROR] JavaScript navigation also failed: {js_error}")
+                            break
                 else:
-                    print("[INFO] No more pages found or stop signal received.")
+                    print(f"[INFO] No more pages found or stop signal received. Total pages processed: {current_page}")
                     break
 
             self.save_to_excel("LienResults.xlsx")
