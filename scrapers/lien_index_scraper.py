@@ -250,6 +250,9 @@ class GSCCCAScraper:
             
             print(f"[INFO] Found {total_rows} rows to process")
             
+            # Store current search results URL for recovery
+            search_results_url = self.page.url
+            
             # Process each row sequentially
             for row_index in range(total_rows):
                 # Stop check
@@ -311,30 +314,66 @@ class GSCCCAScraper:
                         # Now process the RP details for this selection
                         await self.process_rp_details()
                         
-                        # After processing RP details, use the specific back button
-                        print(f"[INFO] Completed processing for Occurs {occurs}. Clicking Back button...")
+                        # After processing RP details, navigate back to search results
+                        print(f"[INFO] Completed processing for Occurs {occurs}. Navigating back to search results...")
                         
-                        # Use the specific back button with name='bBack'
+                        # Try multiple navigation methods
+                        back_success = False
+                        
+                        # Method 1: Try specific back button
                         back_button = await self.page.query_selector("input[name='bBack']")
                         if back_button:
-                            await back_button.click()
-                            await self.page.wait_for_load_state("domcontentloaded")
-                            await self.page.wait_for_timeout(self.time_sleep(a=2000, b=3000))
-                            
-                            # Wait for the table to reload completely
                             try:
-                                await self.page.wait_for_selector("table.name_results", timeout=20000)
-                                print(f"[SUCCESS] Back to search results after Occurs {occurs}")
-                            except Exception as timeout_error:
-                                print(f"[WARNING] Table reload timeout, but continuing...")
-                                # Try to refresh the page
-                                await self.page.goto(self.page.url, wait_until="domcontentloaded")
-                        else:
-                            print("[WARNING] Back button not found, using browser back")
-                            await self.page.go_back()
-                            await self.page.wait_for_load_state("domcontentloaded")
-                            await self.page.wait_for_selector("table.name_results", timeout=15000)
+                                await back_button.click()
+                                await self.page.wait_for_load_state("domcontentloaded", timeout=15000)
+                                await self.page.wait_for_timeout(self.time_sleep(a=2000, b=3000))
+                                back_success = True
+                                print(f"[SUCCESS] Back to search results using bBack button")
+                            except Exception as e:
+                                print(f"[WARNING] bBack button failed: {e}")
                         
+                        # Method 2: Try browser back if first method failed
+                        if not back_success:
+                            try:
+                                await self.page.go_back()
+                                await self.page.wait_for_load_state("domcontentloaded", timeout=15000)
+                                await self.page.wait_for_timeout(self.time_sleep(a=2000, b=3000))
+                                back_success = True
+                                print(f"[SUCCESS] Back to search results using browser back")
+                            except Exception as e:
+                                print(f"[WARNING] Browser back failed: {e}")
+                        
+                        # Method 3: Direct navigation to search results URL as fallback
+                        if not back_success:
+                            try:
+                                await self.page.goto(search_results_url, wait_until="domcontentloaded", timeout=30000)
+                                await self.page.wait_for_selector("table.name_results", timeout=15000)
+                                back_success = True
+                                print(f"[SUCCESS] Back to search results using direct URL navigation")
+                            except Exception as e:
+                                print(f"[WARNING] Direct navigation failed: {e}")
+                        
+                        # Final fallback: Go to name search page
+                        if not back_success:
+                            try:
+                                await self.page.goto(self.name_search_url, wait_until="domcontentloaded", timeout=30000)
+                                # Refill the form and search again
+                                await self.start_search()
+                                await self.page.wait_for_selector("table.name_results", timeout=15000)
+                                # Update the search results URL
+                                search_results_url = self.page.url
+                                print(f"[SUCCESS] Recovered by going to name search page and re-searching")
+                            except Exception as e:
+                                print(f"[ERROR] Final recovery failed: {e}")
+                                break
+                        
+                        # Verify we're back on search results page
+                        try:
+                            await self.page.wait_for_selector("table.name_results", timeout=10000)
+                            print(f"[SUCCESS] Successfully returned to search results after Occurs {occurs}")
+                        except Exception as timeout_error:
+                            print(f"[WARNING] Table reload timeout, but continuing...")
+                            
                     except ValueError:
                         print(f"[WARNING] Invalid Occurs value: {occurs_text}, skipping")
                         continue
@@ -343,12 +382,24 @@ class GSCCCAScraper:
                     print(f"[ERROR] Failed to process row {row_index + 1}: {e}")
                     traceback.print_exc()
                     
-                    # Try to recover by going back to search page
+                    # Enhanced recovery mechanism
                     try:
-                        print("[INFO] Attempting recovery by navigating to search page...")
-                        await self.page.goto(self.name_search_url, wait_until="domcontentloaded")
-                        await self.page.wait_for_selector("table.name_results", timeout=15000)
-                        print("[SUCCESS] Recovered to search page")
+                        print("[INFO] Attempting enhanced recovery...")
+                        
+                        # Try to go back to search results URL
+                        try:
+                            await self.page.goto(search_results_url, wait_until="domcontentloaded", timeout=30000)
+                            await self.page.wait_for_selector("table.name_results", timeout=15000)
+                            print("[SUCCESS] Recovered to search results via URL")
+                        except Exception:
+                            # If that fails, go to name search and re-search
+                            print("[INFO] URL recovery failed, trying fresh search...")
+                            await self.page.goto(self.name_search_url, wait_until="domcontentloaded", timeout=30000)
+                            await self.start_search()
+                            await self.page.wait_for_selector("table.name_results", timeout=15000)
+                            # Update search results URL
+                            search_results_url = self.page.url
+                            print("[SUCCESS] Recovered via fresh search")
                         
                         # Re-calculate total rows after recovery
                         rows = await self.page.query_selector_all("table.name_results tr")
@@ -356,7 +407,7 @@ class GSCCCAScraper:
                         print(f"[INFO] After recovery: {total_rows} rows remaining")
                         
                     except Exception as recovery_error:
-                        print(f"[ERROR] Recovery failed: {recovery_error}")
+                        print(f"[ERROR] Enhanced recovery failed: {recovery_error}")
                         # If recovery fails, break the loop
                         break
 
@@ -365,7 +416,6 @@ class GSCCCAScraper:
         except Exception as e:
             console.print(f"[red]Error in get_search_results: {e}[/red]")
             traceback.print_exc()
-                
         
     async def human_delay(self, min_t=0.8, max_t=2.0):
         try:
@@ -590,11 +640,6 @@ class GSCCCAScraper:
                 else:
                     print(f"[INFO] No more pages found. Total pages processed: {current_page}")
                     break
-
-            # Save results
-            new_results_count = len(self.results) - current_results_count
-            print(f"[INFO] RP details processing completed. Added {new_results_count} new results. Total: {len(self.results)}")
-            self.save_to_excel("LienResults.xlsx")
 
         except Exception as e:
             console.print(f"[red]Error in process_rp_details: {e}[/red]")
@@ -1043,8 +1088,9 @@ class GSCCCAScraper:
                     timezone_id=TIMEZONE,
                     viewport=VIEWPORT,
                     device_scale_factor=1,
-                    ignore_https_errors=True,
                     extra_http_headers=EXTRA_HEADERS,
+                    bypass_csp=True,
+                    ignore_https_errors=True,
                 )
                 self.page = await context.new_page()
             else:
