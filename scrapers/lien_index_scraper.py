@@ -239,42 +239,184 @@ class GSCCCAScraper:
 
 
     async def get_search_results(self, email: str = None, password: str = None):
-        """On liennames.asp page, select row with highest Occurs score."""
-        print("[STEP 4] Selecting row with highest Occurs...")
+        """On liennames.asp page, process ALL rows with Occurs values."""
+        print("[STEP 4] Processing ALL rows with Occurs values...")
         try:
             await self.page.wait_for_selector("table.name_results", timeout=30_000)
+            
+            # Get total number of rows initially
             rows = await self.page.query_selector_all("table.name_results tr")
-            highest_occurs = -1
-            best_radio = None
-
-            for row in rows[1:]:  
-                cols = await row.query_selector_all("td")
-                if len(cols) < 3:
-                    continue
-                occurs_text = await cols[1].inner_text()
-                radio = await cols[0].query_selector("input[type='radio']")
+            total_rows = len(rows) - 1  # Exclude header
+            
+            print(f"[INFO] Found {total_rows} rows to process")
+            
+            # Store current search results URL for recovery
+            search_results_url = self.page.url
+            
+            # Process each row sequentially
+            for row_index in range(total_rows):
+                # Stop check
+                if stop_scraper_flag['lien']:
+                    console.print("[yellow]Stop signal received in get_search_results.[/yellow]")
+                    break
+                    
                 try:
-                    occurs = int(occurs_text.strip())
-                except:
-                    continue
+                    # Wait for table to be present and get fresh rows every time
+                    await self.page.wait_for_selector("table.name_results", timeout=15000)
+                    rows = await self.page.query_selector_all("table.name_results tr")
+                    
+                    if row_index + 1 >= len(rows):
+                        print(f"[WARNING] Row index {row_index + 1} not found, skipping")
+                        continue
+                        
+                    current_row = rows[row_index + 1]  # Skip header
+                    cols = await current_row.query_selector_all("td")
+                    
+                    if len(cols) < 3:
+                        print(f"[WARNING] Not enough columns in row {row_index + 1}, skipping")
+                        continue
+                        
+                    # Get Occurs value and radio button
+                    occurs_text = await cols[1].inner_text()
+                    radio = await cols[0].query_selector("input[type='radio']")
+                    
+                    try:
+                        occurs = int(occurs_text.strip())
+                        print(f"[STEP 4] Processing row {row_index + 1}/{total_rows} with Occurs = {occurs}")
+                        
+                        if not radio:
+                            print(f"[WARNING] No radio button found for row {row_index + 1}, skipping")
+                            continue
+                            
+                        # Click the radio button with retry
+                        retries = 3
+                        for attempt in range(retries):
+                            try:
+                                await radio.click()
+                                await self.page.wait_for_timeout(500)
+                                break
+                            except Exception as click_error:
+                                if attempt == retries - 1:
+                                    raise click_error
+                                print(f"[RETRY] Radio click failed, attempt {attempt + 1}/{retries}")
+                                await self.page.wait_for_timeout(1000)
+                        
+                        # Click "Display Details"
+                        display_btn = await self.page.query_selector("input[value='Display Details']")
+                        if not display_btn:
+                            print(f"[ERROR] 'Display Details' button not found for row {row_index + 1}")
+                            continue
+                            
+                        await display_btn.click()
+                        await self.page.wait_for_load_state("domcontentloaded")
+                        await self.page.wait_for_timeout(self.time_sleep(a=2000, b=3000))
+                        
+                        # Now process the RP details for this selection
+                        await self.process_rp_details()
+                        
+                        # After processing RP details, navigate back to search results
+                        print(f"[INFO] Completed processing for Occurs {occurs}. Navigating back to search results...")
+                        
+                        # Try multiple navigation methods
+                        back_success = False
+                        
+                        # Method 1: Try specific back button
+                        back_button = await self.page.query_selector("input[name='bBack']")
+                        if back_button:
+                            try:
+                                await back_button.click()
+                                await self.page.wait_for_load_state("domcontentloaded", timeout=15000)
+                                await self.page.wait_for_timeout(self.time_sleep(a=2000, b=3000))
+                                back_success = True
+                                print(f"[SUCCESS] Back to search results using bBack button")
+                            except Exception as e:
+                                print(f"[WARNING] bBack button failed: {e}")
+                        
+                        # Method 2: Try browser back if first method failed
+                        if not back_success:
+                            try:
+                                await self.page.go_back()
+                                await self.page.wait_for_load_state("domcontentloaded", timeout=15000)
+                                await self.page.wait_for_timeout(self.time_sleep(a=2000, b=3000))
+                                back_success = True
+                                print(f"[SUCCESS] Back to search results using browser back")
+                            except Exception as e:
+                                print(f"[WARNING] Browser back failed: {e}")
+                        
+                        # Method 3: Direct navigation to search results URL as fallback
+                        if not back_success:
+                            try:
+                                await self.page.goto(search_results_url, wait_until="domcontentloaded", timeout=30000)
+                                await self.page.wait_for_selector("table.name_results", timeout=15000)
+                                back_success = True
+                                print(f"[SUCCESS] Back to search results using direct URL navigation")
+                            except Exception as e:
+                                print(f"[WARNING] Direct navigation failed: {e}")
+                        
+                        # Final fallback: Go to name search page
+                        if not back_success:
+                            try:
+                                await self.page.goto(self.name_search_url, wait_until="domcontentloaded", timeout=30000)
+                                # Refill the form and search again
+                                await self.start_search()
+                                await self.page.wait_for_selector("table.name_results", timeout=15000)
+                                # Update the search results URL
+                                search_results_url = self.page.url
+                                print(f"[SUCCESS] Recovered by going to name search page and re-searching")
+                            except Exception as e:
+                                print(f"[ERROR] Final recovery failed: {e}")
+                                break
+                        
+                        # Verify we're back on search results page
+                        try:
+                            await self.page.wait_for_selector("table.name_results", timeout=10000)
+                            print(f"[SUCCESS] Successfully returned to search results after Occurs {occurs}")
+                        except Exception as timeout_error:
+                            print(f"[WARNING] Table reload timeout, but continuing...")
+                            
+                    except ValueError:
+                        print(f"[WARNING] Invalid Occurs value: {occurs_text}, skipping")
+                        continue
+                        
+                except Exception as e:
+                    print(f"[ERROR] Failed to process row {row_index + 1}: {e}")
+                    traceback.print_exc()
+                    
+                    # Enhanced recovery mechanism
+                    try:
+                        print("[INFO] Attempting enhanced recovery...")
+                        
+                        # Try to go back to search results URL
+                        try:
+                            await self.page.goto(search_results_url, wait_until="domcontentloaded", timeout=30000)
+                            await self.page.wait_for_selector("table.name_results", timeout=15000)
+                            print("[SUCCESS] Recovered to search results via URL")
+                        except Exception:
+                            # If that fails, go to name search and re-search
+                            print("[INFO] URL recovery failed, trying fresh search...")
+                            await self.page.goto(self.name_search_url, wait_until="domcontentloaded", timeout=30000)
+                            await self.start_search()
+                            await self.page.wait_for_selector("table.name_results", timeout=15000)
+                            # Update search results URL
+                            search_results_url = self.page.url
+                            print("[SUCCESS] Recovered via fresh search")
+                        
+                        # Re-calculate total rows after recovery
+                        rows = await self.page.query_selector_all("table.name_results tr")
+                        total_rows = len(rows) - 1
+                        print(f"[INFO] After recovery: {total_rows} rows remaining")
+                        
+                    except Exception as recovery_error:
+                        print(f"[ERROR] Enhanced recovery failed: {recovery_error}")
+                        # If recovery fails, break the loop
+                        break
 
-                if occurs > highest_occurs:
-                    highest_occurs = occurs
-                    best_radio = radio
-
-            if best_radio:
-                await best_radio.click()
-                print(f"[STEP 4] Selected row with highest Occurs = {highest_occurs}")
-                await self.page.click("input[value='Display Details']")
-                await self.page.wait_for_load_state("domcontentloaded")
-                await self.page.wait_for_timeout(self.time_sleep())
-            else:
-                print("[STEP 4] No rows found to select")
+            print("[INFO] Completed processing all Occurs values")
 
         except Exception as e:
             console.print(f"[red]Error in get_search_results: {e}[/red]")
-
-
+            traceback.print_exc()
+        
     async def human_delay(self, min_t=0.8, max_t=2.0):
         try:
             t = random.uniform(min_t, max_t)
@@ -294,107 +436,169 @@ class GSCCCAScraper:
 
 
     async def process_rp_details(self):
-        """ Step 5: Process all RP buttons, extract data and save """
-        self.results = []
+        """Step 5: Process all RP buttons, extract data and save with improved reliability"""
+        current_results_count = len(self.results)
         visited_pages = set()
         current_page = 1
 
+        print(f"[INFO] Starting RP details processing... Current results: {current_results_count}")
+
         try:
             while True:
-                # Add stop check
+                # Stop check
                 if stop_scraper_flag['lien']:
                     console.print("[yellow]Stop signal received. Stopping lien scraper.[/yellow]")
                     break
-                    
-                # Unique marker: first RP link href
+
+                # Wait for page to load completely and get fresh RP links
+                await self.page.wait_for_load_state("domcontentloaded")
+                await asyncio.sleep(2)
+                
                 rp_links = await self.page.query_selector_all("a[href*='lienfinal']")
                 if not rp_links:
                     print("[WARNING] No RP buttons found on this page")
                     break
 
-                first_link = await rp_links[0].get_attribute("href")
-                if first_link in visited_pages:
+                # Use page URL as unique identifier instead of first link href
+                current_url = self.page.url
+                if current_url in visited_pages:
                     print(f"[INFO] Duplicate page detected → already visited. Stopping loop.")
                     break
-                visited_pages.add(first_link)
+                visited_pages.add(current_url)
 
                 total = len(rp_links)
                 print(f"[INFO] Found {total} RP buttons on page {current_page}")
 
-                for i in range(min(total, 100)):  
-                    
-                    # Add stop check inside the inner loop
+                # Process each RP link with fresh element references
+                for i in range(min(total, 100)):  # Limit to 100 per page for safety
                     if stop_scraper_flag['lien']:
                         console.print("[yellow]Stop signal received. Stopping lien scraper.[/yellow]")
                         break
-                        
+
                     try:
+                        # Refresh RP links to avoid stale elements
+                        await asyncio.sleep(1)
                         rp_links = await self.page.query_selector_all("a[href*='lienfinal']")
                         if i >= len(rp_links):
+                            print(f"[WARNING] RP link index {i} not available, skipping")
                             continue
 
                         link = rp_links[i]
+                        link_text = await link.inner_text() or f"RP_{i+1}"
+                        print(f"[INFO] Processing RP {i+1}/{total}: {link_text}")
 
-                        # Click with retry
+                        # Click with improved retry mechanism
                         retries = 3
+                        clicked_successfully = False
                         for attempt in range(retries):
                             try:
+                                await link.scroll_into_view_if_needed()
+                                await asyncio.sleep(1)
                                 await link.click()
                                 await self.page.wait_for_load_state("domcontentloaded")
-                                break
+                                await asyncio.sleep(2)
+                                
+                                # Verify we navigated to a new page
+                                new_url = self.page.url
+                                if new_url != current_url and "lienfinal" in new_url:
+                                    clicked_successfully = True
+                                    break
+                                else:
+                                    print(f"[RETRY] Page didn't navigate properly, attempt {attempt + 1}")
+                                    await self.page.go_back()
+                                    await asyncio.sleep(2)
+                                    
                             except Exception as e:
                                 print(f"[ERROR] Click failed (Attempt {attempt+1}/{retries}): {e}")
                                 if attempt == retries - 1:
                                     raise
-                                await asyncio.sleep(3)
-                        
-                        # Add stop check after successful navigation
-                        if stop_scraper_flag['lien']: 
+                                await asyncio.sleep(2)
+
+                        if not clicked_successfully:
+                            print(f"[ERROR] Failed to navigate for RP {i+1}, skipping")
+                            continue
+
+                        if stop_scraper_flag['lien']:
                             break
 
+                        # Parse the RP detail page
                         data = await self.parse_rp_detail()
                         if data:
                             self.results.append(data)
-                            print(f"[SUCCESS] Saved RP index {i+1} on page {current_page} → "
+                            print(f"[SUCCESS] Saved RP {i+1}/{total} on page {current_page} → "
                                 f"{data.get('Name Selected','N/A')} | "
                                 f"Book={data.get('Book','')} Page={data.get('Page','')}")
-                    
 
-                        # back
+                        # Navigate back with improved reliability
                         await asyncio.sleep(2)
-                        back_btn = await self.page.query_selector("input[name='bBack']")
-                        if back_btn:
-                            await back_btn.click()
-                            await self.page.wait_for_load_state("domcontentloaded")
-                        else:
+                        
+                        # Try multiple back methods
+                        back_success = False
+                        back_methods = [
+                            ("Back button", "input[name='bBack']"),
+                            ("Back button by value", "input[value='Back']"),
+                            ("Back button by type", "input[type='button'][value*='Back']")
+                        ]
+
+                        for method_name, selector in back_methods:
+                            try:
+                                back_btn = await self.page.query_selector(selector)
+                                if back_btn:
+                                    await back_btn.click()
+                                    await self.page.wait_for_load_state("domcontentloaded")
+                                    await asyncio.sleep(2)
+                                    back_success = True
+                                    print(f"[SUCCESS] Back using {method_name}")
+                                    break
+                            except Exception as e:
+                                print(f"[WARNING] {method_name} failed: {e}")
+
+                        if not back_success:
+                            print("[WARNING] All back methods failed, using browser back")
                             await self.page.go_back()
                             await self.page.wait_for_load_state("domcontentloaded")
+                            await asyncio.sleep(2)
+
+                        # Verify we're back on the main list page
+                        try:
+                            await self.page.wait_for_selector("a[href*='lienfinal']", timeout=10000)
+                        except Exception as e:
+                            print(f"[WARNING] Could not verify return to list page: {e}")
+                            # Try to recover by going to the previous URL
+                            if len(visited_pages) > 1:
+                                previous_pages = list(visited_pages)
+                                previous_url = previous_pages[-2] if len(previous_pages) >= 2 else previous_pages[0]
+                                await self.page.goto(previous_url, wait_until="domcontentloaded")
 
                     except Exception as e:
-                        print(f"[ERROR] Failed at RP index {i} on page {current_page}: {e}")
+                        print(f"[ERROR] Failed at RP {i+1} on page {current_page}: {e}")
+                        traceback.print_exc()
+                        
+                        # Recovery attempt
                         try:
-                            await self.page.go_back()
-                            await self.page.wait_for_load_state("domcontentloaded")
-                        except:
-                            pass
-                        continue
-                
-                # If inner loop broke due to stop signal, break outer loop too
+                            await self.page.goto(current_url, wait_until="domcontentloaded")
+                            await asyncio.sleep(3)
+                            print("[SUCCESS] Recovered to main list page")
+                        except Exception as recovery_error:
+                            print(f"[ERROR] Recovery failed: {recovery_error}")
+                            break
+
+                # Stop check after inner loop
                 if stop_scraper_flag['lien']:
                     break
 
-                # UPDATED PAGINATION: Use the correct selector from your HTML
-                print(f"[INFO] Looking for next page link... Current page: {current_page}")
+                # Improved pagination handling
+                print(f"[INFO] Looking for next page... Current page: {current_page}")
                 
-                # Try multiple selectors for next page
+                next_page_link = None
                 next_selectors = [
                     "a[href*='liennamesselected.asp?page=']:has-text('Next Page')",
                     "font a[href*='liennamesselected.asp?page=']",
                     "a:has-text('Next Page')",
-                    "font:has-text('Next Page') a"
+                    "font:has-text('Next Page') a",
+                    "a:has-text('Next')"
                 ]
-                
-                next_page_link = None
+
                 for selector in next_selectors:
                     next_page_link = await self.page.query_selector(selector)
                     if next_page_link:
@@ -403,44 +607,43 @@ class GSCCCAScraper:
 
                 if next_page_link and not stop_scraper_flag['lien']:
                     current_page += 1
-                    print(f"[INFO] Going to page {current_page}...")
+                    print(f"[INFO] Navigating to page {current_page}...")
+                    
                     try:
-                        # Click the next page link
+                        # Get the href for recovery
+                        next_href = await next_page_link.get_attribute("href")
+                        
                         await next_page_link.click()
                         await self.page.wait_for_load_state("domcontentloaded")
-                        await asyncio.sleep(3)  # Wait for page to load completely
+                        await asyncio.sleep(3)
                         
-                        # Verify we're on a new page by checking if RP links are available
-                        await self.page.wait_for_selector("a[href*='lienfinal']", timeout=15000)
-                        print(f"[SUCCESS] Navigated to page {current_page}")
-                        
+                        # Verify navigation by checking for RP links
+                        try:
+                            await self.page.wait_for_selector("a[href*='lienfinal']", timeout=15000)
+                            print(f"[SUCCESS] Navigated to page {current_page}")
+                        except Exception as e:
+                            print(f"[WARNING] RP links not found after navigation, trying JavaScript method")
+                            # Fallback to JavaScript navigation
+                            if next_href and "fnSubmitThisForm" in next_href:
+                                url_match = re.search(r"fnSubmitThisForm\('([^']+)'\)", next_href)
+                                if url_match:
+                                    next_url = url_match.group(1)
+                                    if not next_url.startswith("http"):
+                                        next_url = "https://search.gsccca.org/Lien/" + next_url
+                                    await self.page.goto(next_url, wait_until="domcontentloaded")
+                                    await self.page.wait_for_selector("a[href*='lienfinal']", timeout=15000)
+                                    print(f"[SUCCESS] Navigated via JavaScript to page {current_page}")
+                            
                     except Exception as e:
                         print(f"[ERROR] Pagination failed: {e}")
-                        # Alternative approach: Use JavaScript to navigate
-                        try:
-                            next_href = await next_page_link.get_attribute("href")
-                            if next_href:
-                                # Extract the JavaScript function call
-                                if "fnSubmitThisForm" in next_href:
-                                    # Extract the URL from JavaScript function
-                                    url_match = re.search(r"fnSubmitThisForm\('([^']+)'\)", next_href)
-                                    if url_match:
-                                        next_url = url_match.group(1)
-                                        if not next_url.startswith("http"):
-                                            next_url = "https://search.gsccca.org/Lien/" + next_url
-                                        await self.page.goto(next_url, wait_until="domcontentloaded")
-                                        await self.page.wait_for_selector("a[href*='lienfinal']", timeout=15000)
-                                        print(f"[SUCCESS] Navigated to page {current_page} via JavaScript")
-                        except Exception as js_error:
-                            print(f"[ERROR] JavaScript navigation also failed: {js_error}")
-                            break
+                        break
                 else:
-                    print(f"[INFO] No more pages found or stop signal received. Total pages processed: {current_page}")
+                    print(f"[INFO] No more pages found. Total pages processed: {current_page}")
                     break
 
-            self.save_to_excel("LienResults.xlsx")
         except Exception as e:
             console.print(f"[red]Error in process_rp_details: {e}[/red]")
+            traceback.print_exc()
 
 
     def remove_table_lines(self, bw_inv: np.ndarray) -> np.ndarray:
@@ -885,8 +1088,9 @@ class GSCCCAScraper:
                     timezone_id=TIMEZONE,
                     viewport=VIEWPORT,
                     device_scale_factor=1,
-                    ignore_https_errors=True,
                     extra_http_headers=EXTRA_HEADERS,
+                    bypass_csp=True,
+                    ignore_https_errors=True,
                 )
                 self.page = await context.new_page()
             else:
