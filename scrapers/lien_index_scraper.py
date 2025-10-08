@@ -80,8 +80,8 @@ class GSCCCAScraper:
             
 
             script_dir = Path(__file__).parent.absolute() 
+            
             self.base_output_dir = script_dir.parent / "output" 
-            breakpoint()
             self.lien_data_dir = self.base_output_dir / "Lien_data"
             self.downloads_dir = self.lien_data_dir / "Documents" 
             self.downloads_dir.mkdir(parents=True, exist_ok=True)
