@@ -43,15 +43,18 @@ FIRSTNAME_COL = "Direct Party (Debtor)"
 
 
 BASE_DIR = Path(__file__).parent.absolute() 
-BASE_OUTPUT_DIR = BASE_DIR.parent / "Output" 
-REAL_ESTATE_DATA_DIR = BASE_OUTPUT_DIR / "Realestate data"
+BASE_OUTPUT_DIR = os.path.join(BASE_DIR.parent, "output")
+os.makedirs(BASE_OUTPUT_DIR, exist_ok=True)
+
+REAL_ESTATE_DATA_DIR = os.path.join(BASE_OUTPUT_DIR, "real_estate")
 REAL_ESTATE_EXCEL_DIR = REAL_ESTATE_DATA_DIR 
-PDF_DIR = REAL_ESTATE_DATA_DIR / "Documents"
-LIEN_INPUT_DATA_DIR = BASE_OUTPUT_DIR / "Lien data"
+
+PDF_DIR = os.path.join(REAL_ESTATE_DATA_DIR, "documents")
+LIEN_INPUT_DATA_DIR = os.path.join(BASE_OUTPUT_DIR, "lien")
+
 INPUT_EXCEL_SEARCH_DIR = LIEN_INPUT_DATA_DIR
-PDF_DIR.mkdir(parents=True, exist_ok=True)
-REAL_ESTATE_EXCEL_DIR.mkdir(parents=True, exist_ok=True)
-BASE_OUTPUT_DIR.mkdir(exist_ok=True)
+os.makedirs(PDF_DIR, exist_ok=True)
+os.makedirs(REAL_ESTATE_EXCEL_DIR, exist_ok=True)
 
 # console.print(f"[green]Real Estate Excel folder: {REAL_ESTATE_EXCEL_DIR}[/green]")
 # console.print(f"[green]PDF Documents folder: {PDF_DIR}[/green]")

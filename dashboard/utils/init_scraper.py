@@ -18,13 +18,15 @@ from dashboard.utils.find_excel import find_latest_excel_file
 logger = logging.getLogger(__name__)
 
 BASE_DIR = Path(settings.BASE_DIR)
-OUTPUT_ROOT_DIR = BASE_DIR / "Output" 
-LIEN_DATA_DIR = OUTPUT_ROOT_DIR / "Lien data"
+OUTPUT_ROOT_DIR = os.path.join(BASE_DIR, "output")
+
+LIEN_DATA_DIR = os.path.join(OUTPUT_ROOT_DIR, "lien")
 LIEN_EXCEL_DIR = LIEN_DATA_DIR
-LIEN_DOCUMENTS_DIR = LIEN_DATA_DIR / "Documents"
-REAL_ESTATE_DATA_DIR = OUTPUT_ROOT_DIR / "Realestate data"
+LIEN_DOCUMENTS_DIR = os.path.join(LIEN_DATA_DIR, "documents")
+
+REAL_ESTATE_DATA_DIR = os.path.join(OUTPUT_ROOT_DIR, "real_estate")
 REAL_ESTATE_EXCEL_DIR = REAL_ESTATE_DATA_DIR
-REAL_ESTATE_DOCUMENTS_DIR = REAL_ESTATE_DATA_DIR / "Documents"
+REAL_ESTATE_DOCUMENTS_DIR = os.path.join(REAL_ESTATE_DATA_DIR, "documents")
 
 os.makedirs(OUTPUT_ROOT_DIR, exist_ok=True)
 os.makedirs(LIEN_DOCUMENTS_DIR, exist_ok=True) 

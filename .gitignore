@@ -9,7 +9,7 @@ __pycache__/
 downloads/
 RealEstate/
 realestate_documents/
-Output/
+output/
 
 # C extensions
 *.so

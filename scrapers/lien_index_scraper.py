@@ -47,7 +47,7 @@ UA_DICT = {
     "linux": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
     "win": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome"
 }
-UA_TYPE = "win"
+UA_TYPE = "mac"
 UA = UA_DICT.get(UA_TYPE, UA_DICT["win"])
 EXTRA_HEADERS = {
     "Accept-Language": "en-GB,en-US;q=0.9,en;q=0.8"
@@ -1090,7 +1090,7 @@ class GSCCCAScraper:
                     device_scale_factor=1,
                     extra_http_headers=EXTRA_HEADERS,
                     bypass_csp=True,
-                    ignore_https_errors=True,
+                    ignore_https_errors=False,
                 )
                 self.page = await context.new_page()
             else:
@@ -1103,7 +1103,7 @@ class GSCCCAScraper:
                     device_scale_factor=1,
                     extra_http_headers=EXTRA_HEADERS,
                 )
-                self.page = await browser.new_page(ignore_https_errors=True)
+                self.page = await browser.new_page(ignore_https_errors=False)
 
             # login if needed
             if STATE_FILE.exists():
@@ -1112,6 +1112,8 @@ class GSCCCAScraper:
                 await self.check_and_handle_announcement()
             else:
                 print("Starting fresh login...")
+                await self.page.goto("https://google.com", wait_until="domcontentloaded")
+                await self.page.wait_for_timeout(self.time_sleep(3,5))
                 await self.page.goto(self.login_url, wait_until="domcontentloaded")
                 if not await self.already_logged_in():
                     if await self.login():
