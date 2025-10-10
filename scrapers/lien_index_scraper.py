@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import os
 import re
-import ssl
 import html
 import json
 import random
@@ -80,7 +79,7 @@ class GSCCCAScraper:
             self.name_search_url = "https://search.gsccca.org/Lien/namesearch.asp"
             self.results = []
             
-            script_dir = Path(__file__).parent.absolute() 
+            script_dir = Path(__file__).parent.absolute()
             self.base_output_dir = os.path.join(script_dir.parent, "output") 
             self.lien_data_dir = os.path.join(self.base_output_dir, "lien")
             self.downloads_dir = os.path.join(self.lien_data_dir, "documents") 
@@ -156,7 +155,6 @@ class GSCCCAScraper:
     async def login(self):
         """Perform login and save cookies."""
         try:
-            print("[LOGIN] Trying to login...")
             await self.page.goto(self.login_url, wait_until="domcontentloaded", timeout=60000)
             await self.page.wait_for_timeout(self.time_sleep())
             await self.check_and_handle_announcement()
@@ -190,7 +188,7 @@ class GSCCCAScraper:
             await self.check_and_handle_announcement()
             
             if await self.already_logged_in():
-                console.print("[red][LOGIN] Login successful![/red]")
+                console.print("[bold green]Login successful![/bold green]")
                 await self.dump_cookies()
                 return True
             else:
@@ -421,8 +419,7 @@ class GSCCCAScraper:
         if result_urls.empty:
             console.print(f"[red][ERROR] No URLs found at: {self.csv_path}[/red]")
             return
-        
-        breakpoint()
+
         urls = result_urls['urls'].tolist()
         print(f"Initiating lien data extraction...\nTotal URLs count: {len(urls)}")
 
@@ -455,10 +452,10 @@ class GSCCCAScraper:
 
 
     async def parse_lien_data(self):
-        """ Helper: Parse lienfinal.asp detail page with BeautifulSoup + Viewer URL + Single Page PDF + OCR + Address1/2 + Zipcode1/2 """
+        """ Helper: Parse lien detail page """
         try:
             await self.page.wait_for_load_state("domcontentloaded", timeout=15000)
-            await asyncio.sleep(1.5)
+            await self.page.wait_for_timeout(self.time_sleep())
             html = await self.page.content()
             soup = BeautifulSoup(html, "html.parser")
             data = {}
@@ -471,19 +468,7 @@ class GSCCCAScraper:
             def safe_text(el):
                 return el.get_text(" ", strip=True) if el else ""
 
-            # ---------- Normal Data Extraction ----------
-            header_table = soup.find("table", cellpadding="2")
-            if header_table:
-                rows = header_table.find_all("tr")
-                for row in rows:
-                    cells = row.find_all("td")
-                    if len(cells) == 2:
-                        key = safe_text(cells[0]).rstrip(":")
-                        val = safe_text(cells[1])
-                        data[key] = val
-                    elif len(cells) == 1:
-                        data["Extra Info"] = safe_text(cells[0])
-
+            # ---------- Data Extraction ----------
             doc_table = soup.find("table", width="800", cellpadding="0", cellspacing="0")
             if doc_table:
                 rows = doc_table.find_all("tr")[1:]
@@ -491,92 +476,32 @@ class GSCCCAScraper:
                     cols = [safe_text(td) for td in rows[0].find_all("td")]
                     if len(cols) >= 6:
                         data.update({
-                            "County": cols[0],
-                            "Instrument": cols[1],
-                            "Date Filed": cols[2],
-                            "Time": cols[3],
-                            "Book": cols[4],
-                            "Page": cols[5],
+                            "county": cols[0],
+                            "instrument": cols[1],
+                            "date_filed": cols[2],
+                            "time": cols[3],
+                            "book": cols[4],
+                            "page": cols[5],
                         })
 
             desc_table = soup.find("td", string=lambda t: t and "Description" in t)
             if desc_table:
                 tbody = desc_table.find_parent("table")
                 desc_val = safe_text(tbody.find_all("tr")[1].find("td"))
-                data["Description"] = desc_val
+                data["description"] = desc_val
 
             debtor_table = soup.find("td", string=lambda t: t and "Direct Party (Debtor)" in t)
             if debtor_table:
                 tbody = debtor_table.find_parent("table")
                 debtors = [safe_text(td) for td in tbody.find_all("td")[1:]]
-                data["Direct Party (Debtor)"] = "; ".join(debtors)
+                data["direct_party_debtor"] = "; ".join(debtors)
 
             claimant_table = soup.find("td", string=lambda t: t and "Reverse Party (Claimant)" in t)
             if claimant_table:
                 tbody = claimant_table.find_parent("table")
                 claimants = [safe_text(td) for td in tbody.find_all("td")[1:]]
-                data["Reverse Party (Claimant)"] = "; ".join(claimants)
+                data["reverse_party_claimant"] = "; ".join(claimants)
 
-            cross_table = soup.find("td", string=lambda t: t and "Cross-Referenced Instruments" in t)
-            if cross_table:
-                tbody = cross_table.find_parent("table")
-                rows = tbody.find_all("tr")[1:]
-                refs = []
-                for row in rows:
-                    cols = [safe_text(td) for td in row.find_all("td")]
-                    if any(cols):
-                        refs.append(" | ".join(cols))
-                data["Cross-Referenced Instruments"] = "; ".join(refs)
-
-            record_info = soup.find("i")
-            if record_info:
-                data["Record Added"] = safe_text(record_info)
-
-            # ---------- helper: extract up to 2 addresses (Address) ----------
-            def extract_addresses_from_ocr(text, max_addresses=2):
-                """
-                Return list of dicts: [{'address': ..., 'zipcode': ...}, ...] length == max_addresses (padded).
-                Logic: look for lines that contain 'City, ST 12345' pattern (2-letter state + 5-digit zip),
-                then take preceding non-header line(s) as street line when available.
-                """
-                try:
-                    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
-                    addresses = []
-
-                    for idx, ln in enumerate(lines):
-                        m = re.search(r'([A-Za-z][A-Za-z0-9\.\'&\-\s]+,\s*[A-Za-z]{2}\s*\d{5})', ln)
-                        if m:
-                            city_state_zip = m.group(1).strip()
-                            street = ""
-                            for j in range(1, 4):
-                                if idx - j < 0:
-                                    break
-                                prev = lines[idx - j]
-                                if re.search(r'\b(County|Tax|Commissioner|Recorded|Doc:|Rept#|VS\b|Defendant|GRANT|PAYMENT|TOTAL DUE|PHONE|TEL|Fax)\b', prev, re.I):
-                                    continue
-                                if re.search(r'^\d+\s', prev) or re.search(r'\b(St(reet)?|Street|Rd(?!\w)|Road|Highway|HWY|Ave|Avenue|Blvd|Lane|Ln|Dr(?!\w)|Drive|Way|Court|Ct|Parkway|PKWY|Memorial|HWY|HW|HWY|WY|SW|NE|N\.E\.|S\.W\.)\b', prev, re.I) or re.search(r'\d', prev):
-                                    street = prev
-                                    break
-                                if not re.search(r'^\b(Grant|GORDON|GORDON COUNTY|SCOTT|LIEN|LIEN Bk|TOTAL|PAYMENT)\b', prev, re.I):
-                                    street = prev
-                                    break
-
-                            full_address = (street + " " + city_state_zip).strip() if street else city_state_zip
-                            zip_m = re.search(r'(\d{5})$', city_state_zip)
-                            zipcode = zip_m.group(1) if zip_m else ""
-                            addresses.append({"address": full_address, "zipcode": zipcode})
-
-                            if len(addresses) >= max_addresses:
-                                break
-
-                    while len(addresses) < max_addresses:
-                        addresses.append({"address": "", "zipcode": ""})
-
-                    return addresses
-                except Exception as e:
-                    console.print(f"[red]Error in extract_addresses_from_ocr: {e}[/red]")
-                    return [{"address": "", "zipcode": ""} for _ in range(max_addresses)]
-            
             # ---------- Viewer URL + Single Page PDF ----------
             viewer_script = soup.find("script", string=lambda t: t and "ViewImage" in t)
             if viewer_script:
@@ -591,104 +516,73 @@ class GSCCCAScraper:
                     appid = re.search(r'var appid\s*=\s*(\d+)', script_text).group(1)
 
                     viewer_url = (
-                        f"https://search.gsccca.org/Imaging/HTML5Viewer.aspx?"
+                        f"https://search.gsccca.org/Imaging/HTML5Viewer.aspx?" \
                         f"id={lien_id}&key1={book}&key2={page_num}&county={county}&userid={userid}&appid={appid}"
                     )
-                    data["PDF Document URL"] = viewer_url
-                    print(f"[INFO] Viewer URL captured → {viewer_url}")
+                    data["document_url"] = viewer_url
 
                     # ---------- PDF File Name ----------
-                    debtor_name = data.get("Direct Party (Debtor)", "UnknownDebtor").split(";")[0][:40]
-                    debtor_name = debtor_name.replace(" ", "_").replace(",", "")
-                    pdf_name = f"{debtor_name}_Page{page_num}.pdf"
-
-                    # Use the new downloads directory
+                    debtor_name = data.get("direct_party_debtor", "unkown_debtor").split(";")[0][:40]
+                    debtor_name = debtor_name.replace(" ", "_").replace(",", "").strip()
+                    pdf_name = f"{debtor_name}_page_{page_num}_{county}.pdf"
                     pdf_path = os.path.join(self.downloads_dir, pdf_name)
 
                     try:
                         popup = await self.page.context.new_page()
                         await popup.goto(viewer_url, timeout=50000)
                         await popup.wait_for_load_state("domcontentloaded")
-                        await asyncio.sleep(3)  # let canvas render
+                        await self.page.wait_for_timeout(3000)
                         
                         # Stop check before screenshot/OCR
                         if stop_scraper_flag['lien']:
                             await popup.close()
                             return data
 
-                        # NEW: Select "Fit Window" option from zoom dropdown
-                        print("[INFO] Selecting 'Fit Window' option for proper image display...")
-                        
-                        # Wait for the zoom selector to be available
-                        await popup.wait_for_selector("td.vtm_zoomSelectCell select", timeout=10000)
-                        
                         # Select "Fit Window" option
-                        fit_window_option = "fitwindow"
-                        await popup.select_option("td.vtm_zoomSelectCell select", fit_window_option)
-                        print(f"[INFO] Selected 'Fit Window' option")
-                        
-                        # Wait for the image to adjust to the new zoom level
-                        await asyncio.sleep(3)
-                        
-                        # Additional wait for canvas content to render properly
-                        await popup.wait_for_selector("div.vtm_imageClipper canvas", timeout=10000, state="attached")
-                        await asyncio.sleep(2)
+                        await popup.wait_for_selector("td.vtm_zoomSelectCell select", timeout=10000)
+                        await popup.select_option("td.vtm_zoomSelectCell select", "fitwindow")
+                        await self.page.wait_for_timeout(2000)
 
+                        await popup.wait_for_selector("div.vtm_imageClipper canvas", timeout=10000, state="attached")
+                        await self.page.wait_for_timeout(2000)
                         canvas = await popup.query_selector("div.vtm_imageClipper canvas")
 
                         if canvas:
-                            # Use downloads_dir for temp file
                             tmp_img = os.path.join(self.downloads_dir, f"tmp_{page_num}.png")
-                            
-                            # Take screenshot with full page option if needed
                             try:
                                 await canvas.screenshot(path=tmp_img, timeout=30000)
-                                print(f"[INFO] Canvas screenshot saved to {tmp_img}")
-                                
-                                # Verify the screenshot was taken properly
-                                if os.path.exists(tmp_img) and os.path.getsize(tmp_img) > 0:
-                                    print(f"[SUCCESS] Screenshot verified - file size: {os.path.getsize(tmp_img)} bytes")
-                                else:
-                                    print("[WARNING] Screenshot file is empty or missing, trying full page screenshot...")
+                                if not (os.path.exists(tmp_img) and os.path.getsize(tmp_img) > 0):
+                                    print("[WARNING] screenshot missing, trying full page screenshot...")
                                     await popup.screenshot(path=tmp_img, full_page=True, timeout=30000)
-                                    print(f"[INFO] Fallback: Full page screenshot saved to {tmp_img}")
-                                    
+                                    print(f"Full page screenshot saved!")
                             except Exception as screenshot_error:
-                                print(f"[WARNING] Canvas screenshot failed: {screenshot_error}. Trying full page screenshot...")
-                                # Fallback: take full page screenshot
+                                console.print(f"[red][ERROR] Canvas screenshot failed: {screenshot_error}\nTrying full page screenshot...[/red]")
                                 await popup.screenshot(path=tmp_img, full_page=True, timeout=30000)
-                                print(f"[INFO] Fallback: Full page screenshot saved to {tmp_img}")
+                                print(f"Full page screenshot saved!")
 
                             # Convert single PNG to PDF
                             with open(pdf_path, "wb") as f:
                                 f.write(img2pdf.convert([tmp_img]))
 
-                            data["PDF"] = pdf_name
-                            print(f" [INFO] PDF saved (single page) → {pdf_path}")
+                            data["pdf_filename"] = pdf_name
+                            print(f"PDF document saved to --> {pdf_path}")
 
                             # ----------- OCR Extraction + Address1/2 -----------
                             try:
                                 img = Image.open(tmp_img).convert("L")
                                 text = pytesseract.image_to_string(img, lang="eng")
-                                data["OCR_Text"] = text.strip()
-                                print(f" [OCR] OCR extracted → {len(text.split())} words")
+                                data["ocr_raw_text"] = text.strip()
 
                                 # extract up to 2 addresses
-                                addr_list = extract_addresses_from_ocr(data["OCR_Text"], max_addresses=2)
-                                data["Address"] = addr_list[1]["address"]
-                                data["Zipcode"] = addr_list[1]["zipcode"]
+                                addr_list = self.extract_addresses_from_ocr(data["ocr_raw_text"], max_addresses=2)
+                                data["address"] = addr_list[1]["address"] or ""
+                                data["zipcode"] = addr_list[1]["zipcode"] or ""
                                 
                                 proc_img = self.preprocess_page(img)
-                                line = self.find_total_due_line(proc_img)
-                                data["Total Due"] = self.extract_total_due(img=img)
+                                data["Total Due"] = self.extract_total_due(img=img) or ""
 
                             except Exception as e:
                                 print(f"[ERROR] OCR extraction failed: {e}")
-                                data["OCR_Text"] = ""
-                                data["Address"] = ""
-                                data["Zipcode"] = ""
-                                data["Total Due"] = ""
-                            # ----------------------------------------------------
 
                             os.remove(tmp_img)
                         else:
@@ -705,31 +599,61 @@ class GSCCCAScraper:
 
                     except Exception as e:
                         print(f"[ERROR] PDF generation failed: {e}")
-                        data["PDF"] = ""
-                        data["OCR_Text"] = ""
-                        data["Address"] = ""
-                        data["Zipcode"] = ""
-                        data["Total Due"] = ""
-                else:
-                    data["PDF Document URL"] = ""
-                    data["PDF"] = ""
-                    data["OCR_Text"] = ""
-                    data["Address"] = ""
-                    data["Zipcode"] = ""
-                    data["Total Due"] = ""
-            else:
-                data["PDF Document URL"] = ""
-                data["PDF"] = ""
-                data["OCR_Text"] = ""
-                data["Address"] = ""
-                data["Zipcode"] = ""
-                data["Total Due"] = ""
-
             return data
         except Exception as e:
             console.print(f"[red]Error in parse_lien_data: {e}[/red]")
             return {}
 
+
+    # ---------- helper: extract up to 2 addresses (Address) ----------
+    def extract_addresses_from_ocr(self, text, max_addresses=2):
+        """
+        Return list of dicts: [{'address': ..., 'zipcode': ...}, ...] length == max_addresses (padded).
+        Logic: look for lines that contain 'City, ST 12345' pattern (2-letter state + 5-digit zip),
+        then take preceding non-header line(s) as street line when available.
+        """
+        try:
+            lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+            addresses = []
+
+            for idx, ln in enumerate(lines):
+                m = re.search(r'([A-Za-z][A-Za-z0-9\.\'&\-\s]+,\s*[A-Za-z]{2}\s*\d{5})', ln)
+                if m:
+                    city_state_zip = m.group(1).strip()
+                    street = ""
+                    for j in range(1, 4):
+                        if idx - j < 0:
+                            break
+                        prev = lines[idx - j]
+                        if re.search(r'\b(County|Tax|Commissioner|Recorded|Doc:|Rept#|VS\b|' \
+                            'Defendant|GRANT|PAYMENT|TOTAL DUE|PHONE|TEL|Fax)\b', prev, re.I):
+                            continue
+                        if re.search(r'^\d+\s', prev) or re.search(r'\b(St(reet)?|Street|Rd(?!' \
+                            '\w)|Road|Highway|HWY|Ave|Avenue|Blvd|Lane|Ln|Dr(?!\w)|Drive|Way|' \
+                            'Court|Ct|Parkway|PKWY|Memorial|HWY|HW|HWY|WY|SW|NE|N\.E\.|S\.W\.)\b', 
+                            prev, re.I) or re.search(r'\d', prev):
+                            street = prev
+                            break
+                        if not re.search(r'^\b(Grant|GORDON|GORDON COUNTY|SCOTT|LIEN|LIEN Bk|TOTAL|PAYMENT)\b', prev, re.I):
+                            street = prev
+                            break
+
+                    full_address = (street + " " + city_state_zip).strip() if street else city_state_zip
+                    zip_m = re.search(r'(\d{5})$', city_state_zip)
+                    zipcode = zip_m.group(1) if zip_m else ""
+                    addresses.append({"address": full_address, "zipcode": zipcode})
+
+                    if len(addresses) >= max_addresses:
+                        break
+
+            while len(addresses) < max_addresses:
+                addresses.append({"address": "", "zipcode": ""})
+
+            return addresses
+        except Exception as e:
+            console.print(f"[red]Error in extract_addresses_from_ocr: {e}[/red]")
+            return [{"address": "", "zipcode": ""} for _ in range(max_addresses)]
+            
 
     def remove_table_lines(self, bw_inv: np.ndarray) -> np.ndarray:
         try:
@@ -745,6 +669,7 @@ class GSCCCAScraper:
         except Exception as e:
             console.print(f"[red]Error in remove_table_lines: {e}[/red]")
             return bw_inv
+
 
     def preprocess_page(self,pil_img: Image.Image) -> np.ndarray:
         try:
@@ -901,6 +826,7 @@ class GSCCCAScraper:
                 ignore_https_errors=False, 
             )
             self.page = await context.new_page()
+            self.context = context
 
             # login if needed
             if STATE_FILE.exists():
@@ -925,7 +851,7 @@ class GSCCCAScraper:
 
             # --- Steps using form data ---
             if not await self.check_session():
-                console.print("[yellow]Session invalid → Re-logging in...[/yellow]")
+                console.print("[yellow]Session invalid... logging in again...[/yellow]")
                 await self.login()
                 await self.page.wait_for_timeout(self.time_sleep())
 
@@ -938,7 +864,9 @@ class GSCCCAScraper:
                 return
                 
             await self.get_search_results()
-            
+            # await self.page.goto("https://search.gsccca.org/Lien/lienfinal.asp?Type=0&County=64&Book=++184&Page=+214&Key=24675067"
+            #                      , wait_until="domcontentloaded", timeout=30000)
+            abc = await self.parse_lien_data()
             if stop_scraper_flag['lien']:
                 console.print("[yellow]Stop signal received after search results. Exiting.[/yellow]")
                 await browser.close()
