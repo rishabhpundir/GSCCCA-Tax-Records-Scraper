@@ -3,14 +3,15 @@ from __future__ import annotations
 import os
 import re
 import ssl
+import html
 import json
 import random
 import asyncio
 import traceback
 from pathlib import Path
 from datetime import datetime
-
-
+from urllib.parse import urljoin
+    
 import cv2
 import certifi
 import img2pdf
@@ -73,6 +74,7 @@ class GSCCCAScraper:
             self.email = TAX_EMAIL
             self.password = TAX_PASSWORD
             self.form_data = {}
+            self.csv_path = ""
             self.homepage = "https://www.gsccca.org/"
             self.login_url = "https://apps.gsccca.org/login.asp"
             self.name_search_url = "https://search.gsccca.org/Lien/namesearch.asp"
@@ -82,14 +84,14 @@ class GSCCCAScraper:
             script_dir = Path(__file__).parent.absolute() 
             
             self.base_output_dir = os.path.join(script_dir.parent, "output") 
-            self.lien_data_dir = os.path.join(self.base_output_dir, "lien_data")
+            self.lien_data_dir = os.path.join(self.base_output_dir, "lien")
             self.downloads_dir = os.path.join(self.lien_data_dir, "documents") 
             os.makedirs(self.downloads_dir, exist_ok=True)
             self.excel_output_dir = self.lien_data_dir 
             os.makedirs(self.excel_output_dir, exist_ok=True)
             
-            # console.print(f"[green]Lien Excel output directory: {self.excel_output_dir}[/green]")
-            # console.print(f"[green]Lien Documents directory: {self.downloads_dir}[/green]")
+            console.print(f"[green]Lien Excel output directory: {self.excel_output_dir}[/green]")
+            console.print(f"[green]Lien Documents directory: {self.downloads_dir}[/green]")
             # # --------------------------------------------
 
             # SSL Context for aiohttp
@@ -248,7 +250,7 @@ class GSCCCAScraper:
 
     async def get_search_results(self, email: str = None, password: str = None):
         """On liennames.asp page, process ALL rows with Occurs values."""
-        print("[STEP 4] Processing ALL rows with Occurs values...")
+        print(f"Conducting Lien Search...")
         try:
             await self.page.wait_for_selector("table.name_results", timeout=30_000)
             
@@ -256,15 +258,14 @@ class GSCCCAScraper:
             rows = await self.page.query_selector_all("table.name_results tr")
             total_rows = len(rows) - 1  # Exclude header
             
-            print(f"[INFO] Found {total_rows} rows to process")
+            print(f"Found {total_rows} rows to process...")
+
+            # to collect all results URLs
+            results_df = pd.DataFrame(columns=['urls'])
             
-            # Store current search results URL for recovery
-            search_results_url = self.page.url
-            
-            # Process each row sequentially
             for row_index in range(total_rows):
                 print("*" * 50)
-                print(f"Starting processing for row {row_index + 1}/{total_rows}")
+                print(f"Exracting URLs from Row {row_index + 1} of {total_rows}")
                 # Stop check
                 if stop_scraper_flag['lien']:
                     console.print("[yellow]Stop signal received in get_search_results.[/yellow]")
@@ -281,19 +282,13 @@ class GSCCCAScraper:
                         
                     current_row = rows[row_index + 1]  # Skip header
                     cols = await current_row.query_selector_all("td")
-                    
-                    if len(cols) < 3:
-                        print(f"[WARNING] Not enough columns in row {row_index + 1}, skipping")
-                        continue
-                        
+
                     # Get Occurs value and radio button
                     occurs_text = await cols[1].inner_text()
                     radio = await cols[0].query_selector("input[type='radio']")
                     
                     try:
                         occurs = int(occurs_text.strip())
-                        print(f"[STEP 4] Processing row {row_index + 1}/{total_rows} with Occurs = {occurs}")
-                        
                         if not radio:
                             print(f"[WARNING] No radio button found for row {row_index + 1}, skipping")
                             continue
@@ -318,52 +313,76 @@ class GSCCCAScraper:
                             continue
                             
                         await display_btn.click()
-                        await self.page.wait_for_load_state("domcontentloaded")
-                        await self.page.wait_for_timeout(self.time_sleep(a=2000, b=3000))
+                        next_page_found = True
+                        next_page = 1
+                        while next_page_found:
+                            print(f"Extracting Page {next_page} results...")
+                            await self.page.wait_for_selector('a[href^="javascript:fnSubmitThisForm("]', timeout=15000)
+                            await self.page.wait_for_timeout(self.time_sleep())
+                            await self.page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                            await self.page.wait_for_timeout(self.time_sleep())
+
+                            # grab all matching hrefs in one shot (fast)
+                            hrefs = await self.page.eval_on_selector_all(
+                                'a[href^="javascript:fnSubmitThisForm("]',
+                                'els => els.map(e => e.getAttribute("href"))'
+                            )
+
+                            # extract the relative path inside the JS call and build full URLs
+                            pattern = re.compile(r"fnSubmitThisForm\('([^']+)'\)")
+                            base = "https://search.gsccca.org/Lien/"
+                            urls = []
+
+                            for h in hrefs:
+                                if not h:
+                                    continue
+                                m = pattern.search(h)
+                                if not m:
+                                    continue
+                                rel = html.unescape(m.group(1))
+                                full = urljoin(base, rel)
+                                urls.append(full)
+
+                            # append to your DataFrame
+                            if urls:
+                                results_df = pd.concat([results_df, pd.DataFrame({'urls': urls})], ignore_index=True)
+                            results_url = results_df
+                            
+                            next_selectors = [
+                                "a[href*='liennamesselected.asp?page=']:has-text('Next Page')",
+                                "font a[href*='liennamesselected.asp?page=']",
+                                "a:has-text('Next Page')",
+                                "font:has-text('Next Page') a",
+                                "a:has-text('Next')"
+                            ]
+
+                            for selector in next_selectors:
+                                next_page_link = await self.page.query_selector(selector)
+
+                            if next_page_link and not stop_scraper_flag['lien']:
+                                next_page += 1
+                                
+                                # Get the href for recovery
+                                next_href = await next_page_link.get_attribute("href")
+                                if next_href:
+                                    await next_page_link.click()     
+                                    next_page_found = True      
+                            else:
+                                next_page_found = False             
                         
-                        # Now process the RP details for this selection
-                        await self.process_rp_details()
-                        
-                        # After processing RP details, navigate back to search results
-                        print(f"[INFO] Completed processing for Occurs {occurs}. Navigating back to search results...")
-                        
-                        # Try multiple navigation methods
                         back_success = False
+                        for i in range(next_page):
+                            await self.page.wait_for_timeout(self.time_sleep())
+                            back_button = await self.page.query_selector("input[name='bBack']")
+                            if back_button:
+                                try:
+                                    await back_button.click()
+                                    await self.page.wait_for_load_state("domcontentloaded", timeout=15000)
+                                    back_success = True
+                                except Exception as e:
+                                    print(f"[WARNING] bBack button failed: {e}")
                         
-                        # Method 1: Try specific back button
-                        back_button = await self.page.query_selector("input[name='bBack']")
-                        if back_button:
-                            try:
-                                await back_button.click()
-                                await self.page.wait_for_load_state("domcontentloaded", timeout=15000)
-                                await self.page.wait_for_timeout(self.time_sleep(a=2000, b=3000))
-                                back_success = True
-                                print(f"[SUCCESS] Back to search results using bBack button")
-                            except Exception as e:
-                                print(f"[WARNING] bBack button failed: {e}")
-                        
-                        # Method 2: Try browser back if first method failed
-                        if not back_success:
-                            try:
-                                await self.page.go_back()
-                                await self.page.wait_for_load_state("domcontentloaded", timeout=15000)
-                                await self.page.wait_for_timeout(self.time_sleep(a=2000, b=3000))
-                                back_success = True
-                                print(f"[SUCCESS] Back to search results using browser back")
-                            except Exception as e:
-                                print(f"[WARNING] Browser back failed: {e}")
-                        
-                        # Method 3: Direct navigation to search results URL as fallback
-                        if not back_success:
-                            try:
-                                await self.page.goto(search_results_url, wait_until="domcontentloaded", timeout=30000)
-                                await self.page.wait_for_selector("table.name_results", timeout=15000)
-                                back_success = True
-                                print(f"[SUCCESS] Back to search results using direct URL navigation")
-                            except Exception as e:
-                                print(f"[WARNING] Direct navigation failed: {e}")
-                        
-                        # Final fallback: Go to name search page
+                        # Fallback: Go to name search page
                         if not back_success:
                             try:
                                 await self.page.goto(self.name_search_url, wait_until="domcontentloaded", timeout=30000)
@@ -380,7 +399,6 @@ class GSCCCAScraper:
                         # Verify we're back on search results page
                         try:
                             await self.page.wait_for_selector("table.name_results", timeout=10000)
-                            print(f"[SUCCESS] Successfully returned to search results after Occurs {occurs}")
                         except Exception as timeout_error:
                             print(f"[WARNING] Table reload timeout, but continuing...")
                             
@@ -391,41 +409,17 @@ class GSCCCAScraper:
                 except Exception as e:
                     print(f"[ERROR] Failed to process row {row_index + 1}: {e}")
                     traceback.print_exc()
-                    
-                    # Enhanced recovery mechanism
-                    try:
-                        print("[INFO] Attempting enhanced recovery...")
-                        
-                        # Try to go back to search results URL
-                        try:
-                            await self.page.goto(search_results_url, wait_until="domcontentloaded", timeout=30000)
-                            await self.page.wait_for_selector("table.name_results", timeout=15000)
-                            print("[SUCCESS] Recovered to search results via URL")
-                        except Exception:
-                            # If that fails, go to name search and re-search
-                            print("[INFO] URL recovery failed, trying fresh search...")
-                            await self.page.goto(self.name_search_url, wait_until="domcontentloaded", timeout=30000)
-                            await self.start_search()
-                            await self.page.wait_for_selector("table.name_results", timeout=15000)
-                            # Update search results URL
-                            search_results_url = self.page.url
-                            print("[SUCCESS] Recovered via fresh search")
-                        
-                        # Re-calculate total rows after recovery
-                        rows = await self.page.query_selector_all("table.name_results tr")
-                        total_rows = len(rows) - 1
-                        print(f"[INFO] After recovery: {total_rows} rows remaining")
-                        
-                    except Exception as recovery_error:
-                        print(f"[ERROR] Enhanced recovery failed: {recovery_error}")
-                        # If recovery fails, break the loop
-                        break
 
-            print("[INFO] Completed processing all Occurs values")
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            results_url = results_df[~results_df['urls'].str.contains('maxrows', case=False, na=False)]
+            self.csv_path = os.path.join(self.lien_data_dir, f"lien_search_results_urls_{timestamp}.csv")
+            results_url.to_csv(self.csv_path, index=False)
+            print(f"Success -> Search results' URLs saved to CSV at {self.csv_path}")
 
         except Exception as e:
             console.print(f"[red]Error in get_search_results: {e}[/red]")
-            traceback.print_exc()
+            traceback.format_exc()
+        
         
     async def human_delay(self, min_t=0.8, max_t=2.0):
         try:
