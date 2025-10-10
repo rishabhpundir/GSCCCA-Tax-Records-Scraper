@@ -80,9 +80,7 @@ class GSCCCAScraper:
             self.name_search_url = "https://search.gsccca.org/Lien/namesearch.asp"
             self.results = []
             
-
             script_dir = Path(__file__).parent.absolute() 
-            
             self.base_output_dir = os.path.join(script_dir.parent, "output") 
             self.lien_data_dir = os.path.join(self.base_output_dir, "lien")
             self.downloads_dir = os.path.join(self.lien_data_dir, "documents") 
@@ -90,17 +88,11 @@ class GSCCCAScraper:
             self.excel_output_dir = self.lien_data_dir 
             os.makedirs(self.excel_output_dir, exist_ok=True)
             
-            console.print(f"[green]Lien Excel output directory: {self.excel_output_dir}[/green]")
-            console.print(f"[green]Lien Documents directory: {self.downloads_dir}[/green]")
-            # # --------------------------------------------
-
-            # SSL Context for aiohttp
-            self.ssl_context = ssl.create_default_context(cafile=certifi.where())
+            console.print(f"[green]Lien Output directory --> {self.excel_output_dir}[/green]")
         except Exception as e:
             console.print(f"[red]Error initializing GSCCCAScraper: {e}[/red]")
             raise
-        
-
+    
 
     def time_sleep(self, a: int = 2500, b: int = 5000) -> int:
         try:
@@ -108,6 +100,7 @@ class GSCCCAScraper:
         except Exception as e:
             console.print(f"[red]Error in time_sleep: {e}[/red]")
             return random.uniform(2000, 4000)
+
 
     async def dump_cookies(self, out_file="cookies.json"):
         """Save cookies + storage ONLY for login check."""
@@ -117,6 +110,7 @@ class GSCCCAScraper:
             print(f"Saved login state to --> {out_file}")
         except Exception as e:
             console.print(f"[red]Failed to dump cookies: {e}[/red]")
+
 
     async def already_logged_in(self) -> bool:
         """Check if user is already logged in."""
@@ -130,6 +124,34 @@ class GSCCCAScraper:
         except Exception as e:
             print(f"[already_logged_in ERROR] {e}")
             return False
+
+    
+    async def check_session(self):
+        """Check on homepage if user is logged in."""
+        try:
+            if await self.already_logged_in():
+                console.print("[green]Logged in session detected!![/green]")
+                return True
+            else:
+                console.print("[red]Session not found![/red]")
+                return False
+        except Exception as e:
+            console.print(f"[red]Error in check_session: {e}[/red]")
+            return False
+        
+        
+    async def check_and_handle_announcement(self):
+        """Check if announcement page loaded; if yes, redirect to name_search_url."""
+        try:
+            current_url = self.page.url
+            if "Announcement" in current_url:
+                print("[INFO] Announcement page detected. Redirecting to name search...")
+                await self.page.select_option("#Options", "dismiss")
+                await self.page.wait_for_timeout(1000)
+                await self.page.click("input[name='Continue']")
+        except Exception as e:
+            console.print(f"[red]Error handling announcement: {e}[/red]")
+            
 
     async def login(self):
         """Perform login and save cookies."""
@@ -177,33 +199,6 @@ class GSCCCAScraper:
         except Exception as e:
             console.print(f"[red]Error during login: {e}[/red]")
             return False
-    
-    
-    async def check_session(self):
-        """Check on homepage if user is logged in."""
-        try:
-            if await self.already_logged_in():
-                console.print("[green]Logged in session detected!![/green]")
-                return True
-            else:
-                console.print("[red]Session not found![/red]")
-                return False
-        except Exception as e:
-            console.print(f"[red]Error in check_session: {e}[/red]")
-            return False
-        
-        
-    async def check_and_handle_announcement(self):
-        """Check if announcement page loaded; if yes, redirect to name_search_url."""
-        try:
-            current_url = self.page.url
-            if "Announcement" in current_url:
-                print("[INFO] Announcement page detected. Redirecting to name search...")
-                await self.page.select_option("#Options", "dismiss")
-                await self.page.wait_for_timeout(1000)
-                await self.page.click("input[name='Continue']")
-        except Exception as e:
-            console.print(f"[red]Error handling announcement: {e}[/red]")
 
 
     async def start_search(self):
@@ -272,7 +267,6 @@ class GSCCCAScraper:
                     break
                     
                 try:
-                    # Wait for table to be present and get fresh rows every time
                     await self.page.wait_for_selector("table.name_results", timeout=15000)
                     rows = await self.page.query_selector_all("table.name_results tr")
                     
@@ -419,317 +413,48 @@ class GSCCCAScraper:
         except Exception as e:
             console.print(f"[red]Error in get_search_results: {e}[/red]")
             traceback.format_exc()
-        
-        
-    async def human_delay(self, min_t=0.8, max_t=2.0):
-        try:
-            t = random.uniform(min_t, max_t)
-            await asyncio.sleep(t)
-        except Exception as e:
-            console.print(f"[red]Error in human_delay: {e}[/red]")
-            await asyncio.sleep(1.0)
+            
 
-    async def human_scroll(self, min_y=200, max_y=800):
-        try:
-            y = random.randint(min_y, max_y)
-            await self.page.mouse.wheel(0, y)
-            print(f"[HUMAN] Scrolled {y}px")
-            await self.human_delay(0.5, 1.2)
-        except Exception as e:
-            console.print(f"[red]Error in human_scroll: {e}[/red]")
-
-
-    async def process_rp_details(self):
+    async def process_result_urls(self):
         """Step 5: Process all RP buttons, extract data and save with improved reliability"""
-        current_results_count = len(self.results)
-        visited_pages = set()
-        current_page = 1
-
-        print(f"[INFO] Starting RP details processing... Current results: {current_results_count}")
+        result_urls = pd.read_csv(self.csv_path)
+        if result_urls.empty:
+            console.print(f"[red][ERROR] No URLs found at: {self.csv_path}[/red]")
+            return
+        
+        breakpoint()
+        urls = result_urls['urls'].tolist()
+        print(f"Initiating lien data extraction...\nTotal URLs count: {len(urls)}")
 
         try:
             count = 0
-            while True:
-                # Stop check
+            for url in urls:
                 count += 1
                 print("-" * 50)
-                if count == 4:
-                    break
+                print(f"{count}. URL: ", url)
+                
+                await self.page.goto(url, wait_until="domcontentloaded", timeout=60000)
+                await self.page.wait_for_timeout(self.time_sleep())
+
+                # Stop check
                 if stop_scraper_flag['lien']:
                     console.print("[yellow]Stop signal received. Stopping lien scraper.[/yellow]")
                     break
 
-                # Wait for page to load completely and get fresh RP links
-                await self.page.wait_for_load_state("domcontentloaded")
-                await asyncio.sleep(2)
-                
-                rp_links = await self.page.query_selector_all("a[href*='lienfinal']")
-                if not rp_links:
-                    print("[WARNING] No RP buttons found on this page")
-                    break
-
-                # Use page URL as unique identifier instead of first link href
-                current_url = self.page.url
-                if current_url in visited_pages:
-                    print(f"[INFO] Duplicate page detected → already visited. Stopping loop.")
-                    break
-                visited_pages.add(current_url)
-
-                total = len(rp_links)
-                print(f"[INFO] Found {total} RP buttons on page {current_page}")
-
-                # Process each RP link with fresh element references
-                for i in range(3):  # Limit to 100 per page for safety
-                    print("-" * 30)
-                    print(f"[INFO] Processing RP {i+1}/{total} on page {current_page}")
-                    if stop_scraper_flag['lien']:
-                        console.print("[yellow]Stop signal received. Stopping lien scraper.[/yellow]")
-                        break
-
-                    try:
-                        # Refresh RP links to avoid stale elements
-                        await asyncio.sleep(1)
-                        rp_links = await self.page.query_selector_all("a[href*='lienfinal']")
-                        if i >= len(rp_links):
-                            print(f"[WARNING] RP link index {i} not available, skipping")
-                            continue
-
-                        link = rp_links[i]
-                        link_text = await link.inner_text() or f"RP_{i+1}"
-                        print(f"[INFO] Processing RP {i+1}/{total}: {link_text}")
-
-                        # Click with improved retry mechanism
-                        retries = 3
-                        clicked_successfully = False
-                        for attempt in range(retries):
-                            try:
-                                await link.scroll_into_view_if_needed()
-                                await asyncio.sleep(1)
-                                await link.click()
-                                await self.page.wait_for_load_state("domcontentloaded")
-                                await asyncio.sleep(2)
-                                
-                                # Verify we navigated to a new page
-                                new_url = self.page.url
-                                if new_url != current_url and "lienfinal" in new_url:
-                                    clicked_successfully = True
-                                    break
-                                else:
-                                    print(f"[RETRY] Page didn't navigate properly, attempt {attempt + 1}")
-                                    await self.page.go_back()
-                                    await asyncio.sleep(2)
-                                    
-                            except Exception as e:
-                                print(f"[ERROR] Click failed (Attempt {attempt+1}/{retries}): {e}")
-                                if attempt == retries - 1:
-                                    raise
-                                await asyncio.sleep(2)
-
-                        if not clicked_successfully:
-                            print(f"[ERROR] Failed to navigate for RP {i+1}, skipping")
-                            continue
-
-                        if stop_scraper_flag['lien']:
-                            break
-
-                        # Parse the RP detail page
-                        data = await self.parse_rp_detail()
-                        if data:
-                            self.results.append(data)
-                            print(f"[SUCCESS] Saved RP {i+1}/{total} on page {current_page} → "
-                                f"{data.get('Name Selected','N/A')} | "
-                                f"Book={data.get('Book','')} Page={data.get('Page','')}")
-
-                        # Navigate back with improved reliability
-                        await asyncio.sleep(2)
-                        
-                        # Try multiple back methods
-                        back_success = False
-                        back_methods = [
-                            ("Back button", "input[name='bBack']"),
-                            ("Back button by value", "input[value='Back']"),
-                            ("Back button by type", "input[type='button'][value*='Back']")
-                        ]
-
-                        for method_name, selector in back_methods:
-                            try:
-                                back_btn = await self.page.query_selector(selector)
-                                if back_btn:
-                                    await back_btn.click()
-                                    await self.page.wait_for_load_state("domcontentloaded")
-                                    await asyncio.sleep(2)
-                                    back_success = True
-                                    print(f"[SUCCESS] Back using {method_name}")
-                                    break
-                            except Exception as e:
-                                print(f"[WARNING] {method_name} failed: {e}")
-
-                        if not back_success:
-                            print("[WARNING] All back methods failed, using browser back")
-                            await self.page.go_back()
-                            await self.page.wait_for_load_state("domcontentloaded")
-                            await asyncio.sleep(2)
-
-                        # Verify we're back on the main list page
-                        try:
-                            await self.page.wait_for_selector("a[href*='lienfinal']", timeout=10000)
-                        except Exception as e:
-                            print(f"[WARNING] Could not verify return to list page: {e}")
-                            # Try to recover by going to the previous URL
-                            if len(visited_pages) > 1:
-                                previous_pages = list(visited_pages)
-                                previous_url = previous_pages[-2] if len(previous_pages) >= 2 else previous_pages[0]
-                                await self.page.goto(previous_url, wait_until="domcontentloaded")
-
-                    except Exception as e:
-                        print(f"[ERROR] Failed at RP {i+1} on page {current_page}: {e}")
-                        traceback.print_exc()
-                        
-                        # Recovery attempt
-                        try:
-                            await self.page.goto(current_url, wait_until="domcontentloaded")
-                            await asyncio.sleep(3)
-                            print("[SUCCESS] Recovered to main list page")
-                        except Exception as recovery_error:
-                            print(f"[ERROR] Recovery failed: {recovery_error}")
-                            break
-
-                # Stop check after inner loop
-                if stop_scraper_flag['lien']:
-                    break
-
-                # Improved pagination handling
-                print(f"[INFO] Looking for next page... Current page: {current_page}")
-                
-                next_page_link = None
-                next_selectors = [
-                    "a[href*='liennamesselected.asp?page=']:has-text('Next Page')",
-                    "font a[href*='liennamesselected.asp?page=']",
-                    "a:has-text('Next Page')",
-                    "font:has-text('Next Page') a",
-                    "a:has-text('Next')"
-                ]
-
-                for selector in next_selectors:
-                    next_page_link = await self.page.query_selector(selector)
-                    if next_page_link:
-                        print(f"[INFO] Found next page link with selector: {selector}")
-                        break
-
-                if next_page_link and not stop_scraper_flag['lien']:
-                    current_page += 1
-                    print(f"[INFO] Navigating to page {current_page}...")
-                    
-                    try:
-                        # Get the href for recovery
-                        next_href = await next_page_link.get_attribute("href")
-                        
-                        await next_page_link.click()
-                        await self.page.wait_for_load_state("domcontentloaded")
-                        await asyncio.sleep(3)
-                        
-                        # Verify navigation by checking for RP links
-                        try:
-                            await self.page.wait_for_selector("a[href*='lienfinal']", timeout=15000)
-                            print(f"[SUCCESS] Navigated to page {current_page}")
-                        except Exception as e:
-                            print(f"[WARNING] RP links not found after navigation, trying JavaScript method")
-                            # Fallback to JavaScript navigation
-                            if next_href and "fnSubmitThisForm" in next_href:
-                                url_match = re.search(r"fnSubmitThisForm\('([^']+)'\)", next_href)
-                                if url_match:
-                                    next_url = url_match.group(1)
-                                    if not next_url.startswith("http"):
-                                        next_url = "https://search.gsccca.org/Lien/" + next_url
-                                    await self.page.goto(next_url, wait_until="domcontentloaded")
-                                    await self.page.wait_for_selector("a[href*='lienfinal']", timeout=15000)
-                                    print(f"[SUCCESS] Navigated via JavaScript to page {current_page}")
-                            
-                    except Exception as e:
-                        print(f"[ERROR] Pagination failed: {e}")
-                        break
+                # Parse data
+                data = await self.parse_lien_data()
+                if data:
+                    self.results.append(data)
+                    print(f"Saved data for --> {data.get('Name Selected', 'Unknown')}")
                 else:
-                    print(f"[INFO] No more pages found. Total pages processed: {current_page}")
-                    break
+                    print(f"No data found")
 
         except Exception as e:
-            console.print(f"[red]Error in process_rp_details: {e}[/red]")
-            traceback.print_exc()
+            console.print(f"[red]Error in process_result_urls: {e}[/red]")
+            traceback.format_exc()
 
 
-    def remove_table_lines(self, bw_inv: np.ndarray) -> np.ndarray:
-        try:
-            h, w = bw_inv.shape[:2]
-            h_len = max(20, w // 30)
-            v_len = max(20, h // 30)
-            h_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (h_len, 1))
-            v_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (1, v_len))
-            horiz = cv2.morphologyEx(bw_inv, cv2.MORPH_OPEN, h_kernel, iterations=1)
-            vert  = cv2.morphologyEx(bw_inv, cv2.MORPH_OPEN, v_kernel, iterations=1)
-            grid  = cv2.bitwise_or(horiz, vert)
-            return cv2.bitwise_and(bw_inv, cv2.bitwise_not(grid))
-        except Exception as e:
-            console.print(f"[red]Error in remove_table_lines: {e}[/red]")
-            return bw_inv
-
-    def preprocess_page(self,pil_img: Image.Image) -> np.ndarray:
-        try:
-            img = np.array(pil_img.convert("RGB"))
-            gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
-            scale = 2.0 if max(gray.shape) < 2000 else 1.5
-            gray = cv2.resize(gray, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
-            clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-            gray = clahe.apply(gray)
-            bw_inv = cv2.adaptiveThreshold(
-                gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 31, 10
-            )
-            clean_inv = self.remove_table_lines(bw_inv)
-            return cv2.bitwise_not(clean_inv)
-        except Exception as e:
-            console.print(f"[red]Error in preprocess_page: {e}[/red]")
-            return np.array(pil_img.convert("L"))
-
-    def find_total_due_line(self, proc_img: np.ndarray) -> str | None:
-        try:
-            cfg_page = "--oem 3 --psm 6 -l eng -c preserve_interword_spaces=1"
-            page_text = pytesseract.image_to_string(proc_img, config=cfg_page)
-            for raw in page_text.splitlines():
-                if raw.strip() and TOTAL_LINE_REGEX.search(raw.upper()):
-                    return raw
-            data_dict = pytesseract.image_to_data(proc_img, config=cfg_page, output_type=pytesseract.Output.DICT)
-            lines = {}
-            for i, txt in enumerate(data_dict["text"]):
-                if txt.strip():
-                    key = (data_dict["block_num"][i], data_dict["par_num"][i], data_dict["line_num"][i])
-                    lines.setdefault(key, []).append(txt)
-            for parts in lines.values():
-                line = " ".join(parts).strip()
-                if TOTAL_LINE_REGEX.search(line.upper()):
-                    return line
-            return None
-        except Exception as e:
-            console.print(f"[red]Error in find_total_due_line: {e}[/red]")
-            return None
-    
-    
-    def extract_total_due(self, img):          
-        try:
-            pil = img.convert("RGB")
-            
-            proc = self.preprocess_page(pil)
-            line = self.find_total_due_line(proc)
-            if line:
-                m = re.search(r'(?<!\d)(\d{1,3}(?:,\d{3})*(?:\.\d{2})|\d+\.\d{2})(?!\d)', line)
-                line = m.group(1).replace(',', '') if m else None
-            line = line if line else "Not found"
-            print(f"Total Due: {line}")
-            return line
-        except Exception as e:
-            console.print(f"[red]Error in extract_total_due: {e}[/red]")
-            return "Error"
-
-
-    async def parse_rp_detail(self):
+    async def parse_lien_data(self):
         """ Helper: Parse lienfinal.asp detail page with BeautifulSoup + Viewer URL + Single Page PDF + OCR + Address1/2 + Zipcode1/2 """
         try:
             await self.page.wait_for_load_state("domcontentloaded", timeout=15000)
@@ -740,7 +465,7 @@ class GSCCCAScraper:
             
             # Stop check
             if stop_scraper_flag['lien']:
-                console.print("[yellow]Stop signal received during parse_rp_detail.[/yellow]")
+                console.print("[yellow]Stop signal received during parse_lien_data.[/yellow]")
                 return {}
 
             def safe_text(el):
@@ -1002,8 +727,80 @@ class GSCCCAScraper:
 
             return data
         except Exception as e:
-            console.print(f"[red]Error in parse_rp_detail: {e}[/red]")
+            console.print(f"[red]Error in parse_lien_data: {e}[/red]")
             return {}
+
+
+    def remove_table_lines(self, bw_inv: np.ndarray) -> np.ndarray:
+        try:
+            h, w = bw_inv.shape[:2]
+            h_len = max(20, w // 30)
+            v_len = max(20, h // 30)
+            h_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (h_len, 1))
+            v_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (1, v_len))
+            horiz = cv2.morphologyEx(bw_inv, cv2.MORPH_OPEN, h_kernel, iterations=1)
+            vert  = cv2.morphologyEx(bw_inv, cv2.MORPH_OPEN, v_kernel, iterations=1)
+            grid  = cv2.bitwise_or(horiz, vert)
+            return cv2.bitwise_and(bw_inv, cv2.bitwise_not(grid))
+        except Exception as e:
+            console.print(f"[red]Error in remove_table_lines: {e}[/red]")
+            return bw_inv
+
+    def preprocess_page(self,pil_img: Image.Image) -> np.ndarray:
+        try:
+            img = np.array(pil_img.convert("RGB"))
+            gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+            scale = 2.0 if max(gray.shape) < 2000 else 1.5
+            gray = cv2.resize(gray, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
+            clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+            gray = clahe.apply(gray)
+            bw_inv = cv2.adaptiveThreshold(
+                gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 31, 10
+            )
+            clean_inv = self.remove_table_lines(bw_inv)
+            return cv2.bitwise_not(clean_inv)
+        except Exception as e:
+            console.print(f"[red]Error in preprocess_page: {e}[/red]")
+            return np.array(pil_img.convert("L"))
+
+    def find_total_due_line(self, proc_img: np.ndarray) -> str | None:
+        try:
+            cfg_page = "--oem 3 --psm 6 -l eng -c preserve_interword_spaces=1"
+            page_text = pytesseract.image_to_string(proc_img, config=cfg_page)
+            for raw in page_text.splitlines():
+                if raw.strip() and TOTAL_LINE_REGEX.search(raw.upper()):
+                    return raw
+            data_dict = pytesseract.image_to_data(proc_img, config=cfg_page, output_type=pytesseract.Output.DICT)
+            lines = {}
+            for i, txt in enumerate(data_dict["text"]):
+                if txt.strip():
+                    key = (data_dict["block_num"][i], data_dict["par_num"][i], data_dict["line_num"][i])
+                    lines.setdefault(key, []).append(txt)
+            for parts in lines.values():
+                line = " ".join(parts).strip()
+                if TOTAL_LINE_REGEX.search(line.upper()):
+                    return line
+            return None
+        except Exception as e:
+            console.print(f"[red]Error in find_total_due_line: {e}[/red]")
+            return None
+    
+    
+    def extract_total_due(self, img):          
+        try:
+            pil = img.convert("RGB")
+            
+            proc = self.preprocess_page(pil)
+            line = self.find_total_due_line(proc)
+            if line:
+                m = re.search(r'(?<!\d)(\d{1,3}(?:,\d{3})*(?:\.\d{2})|\d+\.\d{2})(?!\d)', line)
+                line = m.group(1).replace(',', '') if m else None
+            line = line if line else "Not found"
+            print(f"Total Due: {line}")
+            return line
+        except Exception as e:
+            console.print(f"[red]Error in extract_total_due: {e}[/red]")
+            return "Error"
 
 
     def save_to_excel(self, filename="LienResults.xlsx"):
@@ -1148,7 +945,7 @@ class GSCCCAScraper:
                 await playwright.stop()
                 return
                 
-            await self.process_rp_details()
+            await self.process_result_urls()
             self.save_to_excel()
 
             await browser.close()
