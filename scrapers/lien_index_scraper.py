@@ -81,12 +81,12 @@ class GSCCCAScraper:
 
             script_dir = Path(__file__).parent.absolute() 
             
-            self.base_output_dir = script_dir.parent / "output" 
-            self.lien_data_dir = self.base_output_dir / "Lien_data"
-            self.downloads_dir = self.lien_data_dir / "Documents" 
-            self.downloads_dir.mkdir(parents=True, exist_ok=True)
+            self.base_output_dir = os.path.join(script_dir.parent, "output") 
+            self.lien_data_dir = os.path.join(self.base_output_dir, "lien_data")
+            self.downloads_dir = os.path.join(self.lien_data_dir, "documents") 
+            os.makedirs(self.downloads_dir, exist_ok=True)
             self.excel_output_dir = self.lien_data_dir 
-            self.excel_output_dir.mkdir(parents=True, exist_ok=True)
+            os.makedirs(self.excel_output_dir, exist_ok=True)
             
             # console.print(f"[green]Lien Excel output directory: {self.excel_output_dir}[/green]")
             # console.print(f"[green]Lien Documents directory: {self.downloads_dir}[/green]")
@@ -119,7 +119,7 @@ class GSCCCAScraper:
     async def already_logged_in(self) -> bool:
         """Check if user is already logged in."""
         try:
-            await self.page.wait_for_load_state("domcontentloaded")
+            await self.page.wait_for_timeout(self.time_sleep())
             all_text = await self.page.evaluate("document.body.innerText")
             if "logout" in all_text.lower():
                 return True
@@ -158,7 +158,14 @@ class GSCCCAScraper:
                 await self.page.evaluate("document.forms['frmLogin'].submit()")
 
             await self.page.wait_for_load_state("networkidle", timeout=60000)
-            if await self.page.query_selector("a:has-text('Logout')"):
+            await self.page.wait_for_timeout(self.time_sleep())
+            await self.check_and_handle_announcement()
+            
+            await self.page.goto(self.name_search_url, wait_until="domcontentloaded", timeout=60000)
+            await self.page.wait_for_timeout(self.time_sleep())
+            await self.check_and_handle_announcement()
+            
+            if await self.already_logged_in():
                 console.print("[red][LOGIN] Login successful![/red]")
                 await self.dump_cookies()
                 return True
@@ -256,6 +263,8 @@ class GSCCCAScraper:
             
             # Process each row sequentially
             for row_index in range(total_rows):
+                print("*" * 50)
+                print(f"Starting processing for row {row_index + 1}/{total_rows}")
                 # Stop check
                 if stop_scraper_flag['lien']:
                     console.print("[yellow]Stop signal received in get_search_results.[/yellow]")
@@ -445,8 +454,13 @@ class GSCCCAScraper:
         print(f"[INFO] Starting RP details processing... Current results: {current_results_count}")
 
         try:
+            count = 0
             while True:
                 # Stop check
+                count += 1
+                print("-" * 50)
+                if count == 4:
+                    break
                 if stop_scraper_flag['lien']:
                     console.print("[yellow]Stop signal received. Stopping lien scraper.[/yellow]")
                     break
@@ -471,7 +485,9 @@ class GSCCCAScraper:
                 print(f"[INFO] Found {total} RP buttons on page {current_page}")
 
                 # Process each RP link with fresh element references
-                for i in range(min(total, 100)):  # Limit to 100 per page for safety
+                for i in range(3):  # Limit to 100 per page for safety
+                    print("-" * 30)
+                    print(f"[INFO] Processing RP {i+1}/{total} on page {current_page}")
                     if stop_scraper_flag['lien']:
                         console.print("[yellow]Stop signal received. Stopping lien scraper.[/yellow]")
                         break
@@ -868,7 +884,7 @@ class GSCCCAScraper:
                     pdf_name = f"{debtor_name}_Page{page_num}.pdf"
 
                     # Use the new downloads directory
-                    pdf_path = self.downloads_dir / pdf_name
+                    pdf_path = os.path.join(self.downloads_dir, pdf_name)
 
                     try:
                         popup = await self.page.context.new_page()
@@ -903,7 +919,7 @@ class GSCCCAScraper:
 
                         if canvas:
                             # Use downloads_dir for temp file
-                            tmp_img = self.downloads_dir / f"tmp_{page_num}.png"
+                            tmp_img = os.path.join(self.downloads_dir, f"tmp_{page_num}.png")
                             
                             # Take screenshot with full page option if needed
                             try:
@@ -959,7 +975,7 @@ class GSCCCAScraper:
                         else:
                             print("[WARNING] No canvas found in popup, trying full page screenshot...")
                             # Fallback: take full page screenshot
-                            tmp_img = self.downloads_dir / f"tmp_{page_num}.png"
+                            tmp_img = os.path.join(self.downloads_dir, f"tmp_{page_num}.png")
                             await popup.screenshot(path=tmp_img, full_page=True)
                             with open(pdf_path, "wb") as f:
                                 f.write(img2pdf.convert([tmp_img]))
@@ -1030,7 +1046,7 @@ class GSCCCAScraper:
             final_filename = f"{base}_{ts}{ext}"
             
             # Use self.excel_output_dir (jo Project Root ke andar hai)
-            final_path = self.excel_output_dir / final_filename
+            final_path = os.path.join(self.excel_output_dir, final_filename)
 
             with pd.ExcelWriter(final_path, engine="openpyxl") as writer:
                 df.to_excel(writer, index=False)
@@ -1077,34 +1093,23 @@ class GSCCCAScraper:
                 args=[
                     "--disable-blink-features=AutomationControlled",
                     "--start-maximized",
+                    "--no-proxy-server",
                 ]
             )
 
-            if STATE_FILE.exists():
-                print("Loading session from storage...")
-                context = await browser.new_context(
-                    storage_state=STATE_FILE,
-                    user_agent=UA,
-                    locale=LOCALE,
-                    timezone_id=TIMEZONE,
-                    viewport=VIEWPORT,
-                    device_scale_factor=1,
-                    extra_http_headers=EXTRA_HEADERS,
-                    bypass_csp=True,
-                    ignore_https_errors=False,
-                )
-                self.page = await context.new_page()
-            else:
-                print("Starting fresh session...")
-                context = await browser.new_context(
-                    user_agent=UA,
-                    locale=LOCALE,
-                    timezone_id=TIMEZONE,
-                    viewport=VIEWPORT,
-                    device_scale_factor=1,
-                    extra_http_headers=EXTRA_HEADERS,
-                )
-                self.page = await browser.new_page(ignore_https_errors=False)
+            print("Starting scraper...")
+            context = await browser.new_context(
+                storage_state=STATE_FILE if STATE_FILE.exists() else None,
+                user_agent=UA,
+                locale=LOCALE,
+                timezone_id=TIMEZONE,
+                viewport=VIEWPORT,
+                device_scale_factor=1,
+                extra_http_headers=EXTRA_HEADERS,
+                bypass_csp=True,
+                ignore_https_errors=False, 
+            )
+            self.page = await context.new_page()
 
             # login if needed
             if STATE_FILE.exists():
@@ -1112,15 +1117,14 @@ class GSCCCAScraper:
                 await self.page.goto(self.homepage, wait_until="domcontentloaded", timeout=60000)
                 await self.check_and_handle_announcement()
             else:
-                print("Starting fresh login...")
                 await self.page.goto("https://google.com", wait_until="domcontentloaded")
-                await self.page.wait_for_timeout(self.time_sleep(3,5))
+                await self.page.wait_for_timeout(self.time_sleep(3, 5))
                 await self.page.goto(self.login_url, wait_until="domcontentloaded")
-                if not await self.already_logged_in():
-                    if await self.login():
-                        await self.page.wait_for_timeout(self.time_sleep())
-                        await self.dump_cookies()
-            
+                if not await self.check_session():
+                    print("Attempting fresh login...")
+                    await self.login()
+                    await self.page.wait_for_timeout(self.time_sleep())
+                        
             # Global stop check before starting core work
             if stop_scraper_flag['lien']:
                 console.print("[yellow]Scraper started but received immediate stop signal. Exiting.[/yellow]")

@@ -166,7 +166,7 @@ class RealestateIndexScraper:
             if await self.page.query_selector("a:has-text('Logout')"):
                 console.print("[green]Login successful[/green]")
                 state = await self.page.context.storage_state()
-                Path(STATE_FILE).write_text(json.dumps(state, indent=2))
+                # Path(STATE_FILE).write_text(json.dumps(state, indent=2))
                 return True
             
             console.print("[red]Login failed.[/red]")
@@ -479,7 +479,6 @@ class RealestateIndexScraper:
                     viewport=VIEWPORT,
                     device_scale_factor=1,
                     extra_http_headers=EXTRA_HEADERS,
-                    ignore_https_errors=True,
                 )
 
             self.page = await context.new_page()

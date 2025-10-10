@@ -197,7 +197,7 @@ def run_realestate_scraper(params: dict):
         for location in possible_locations:
             for pattern in possible_patterns:
                 if location.exists():
-                    files = list(location.glob(f"{pattern}.xlsx")) + list(location.glob(f"{pattern}.xls"))
+                    files = list(Path(location).glob(f"{pattern}.xlsx")) + list(Path(location).glob(f"{pattern}.xls"))
                     if files:
                         latest_candidate = max(files, key=os.path.getmtime, default=None)
                         if latest_candidate and (latest_file is None or os.path.getmtime(latest_candidate) > os.path.getmtime(latest_file)):
@@ -242,3 +242,5 @@ def run_realestate_scraper(params: dict):
     except Exception as e:
         logger.error(f"Error running real estate scraper: {e}")
         traceback.print_exc()
+        
+        
