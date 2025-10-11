@@ -6,7 +6,6 @@ from pathlib import Path
 
 import pandas as pd
 from django.conf import settings
-from django.views.decorators.csrf import csrf_exempt
 from dashboard.models import LienData, RealEstateData
 from dashboard.utils.state import stop_scraper_flag
 from scrapers.lien_index_scraper import GSCCCAScraper
@@ -15,8 +14,6 @@ from dashboard.utils.find_excel import find_latest_excel_file
 
 
 # ------------------ LOGGER SETUP -------------------
-logger = logging.getLogger(__name__)
-
 BASE_DIR = Path(settings.BASE_DIR)
 OUTPUT_ROOT_DIR = os.path.join(BASE_DIR, "output")
 
@@ -39,34 +36,28 @@ def run_lien_scraper(params: dict):
     """Run lien scraper and save results to database"""
     try:
         global stop_scraper_flag
-        # Reset the stop flag at the start of a run
         stop_scraper_flag['lien'] = False
         
-        logger.info("Starting lien scraper...")
+        print("Starting lien scraper...")
         scraper = GSCCCAScraper()
         asyncio.run(scraper.run_dynamic(params))
         
         if stop_scraper_flag['lien']:
-            logger.info("Lien scraper stopped by user command.")
+            print("Lien scraper stopped by user command.")
             return
 
         # --- Find the latest Excel file in the new location ---
-        latest_file = find_latest_excel_file(LIEN_EXCEL_DIR, "LienResults")
+        latest_file = find_latest_excel_file(LIEN_EXCEL_DIR, "lien_data")
         
         if latest_file:
-            logger.info(f"Found lien Excel file: {latest_file}")
+            print(f"Found lien Excel file: {latest_file}")
             
             # Read and save to database
             df = pd.read_excel(latest_file)
-            logger.debug(f"Excel file columns: {list(df.columns)}")
-            logger.info(f"Number of rows: {len(df)}")
+            print(f"Number of rows: {len(df)}")
             
             saved_count = 0
             for index, row in df.iterrows():
-                if stop_scraper_flag['lien']:
-                    logger.info(f"Lien scraper stopped processing database write at row {index + 1}.")
-                    break
-                    
                 try:
                     # Helper function to safely extract and format data
                     def get_field_value(field_name, default='', max_length=None):
@@ -97,25 +88,25 @@ def run_lien_scraper(params: dict):
                             'date_filed': get_field_value('Date Filed', max_length=50),
                             'description': get_field_value('Description'),
                             'pdf_document_url': get_field_value('PDF Document URL'),
-                            'pdf_file': get_field_value('PDF', max_length=255),
+                            'pdf_file': get_field_value('View PDF', max_length=255),
                         }
                     )
                     
                     if created:
                         saved_count += 1
-                        logger.debug(f"Saved record {index + 1}: {get_field_value('Direct Party (Debtor)')}")
+                        print(f"Saved record {index + 1}: {get_field_value('Direct Party (Debtor)')}")
                         
                 except Exception as e:
-                    logger.error(f"Error saving row {index + 1}: {e}")
-                    logger.debug(f"Problematic row data: {dict(row)}")
-                    traceback.print_exc()
+                    print(f"Error saving row {index + 1}: {e}")
+                    print(f"Problematic row data: {dict(row)}")
+                    traceback.format_exc()
                     
-            logger.info(f"Successfully saved {saved_count} out of {len(df)} lien records to database")
+            print(f"Successfully saved {saved_count} out of {len(df)} lien records to database")
         else:
-            logger.warning("No lien Excel file found")
+            print("No lien Excel file found")
     except Exception as e:
-        logger.error(f"Error running lien scraper: {e}")
-        traceback.print_exc()
+        print(f"Error running lien scraper: {e}")
+        traceback.format_exc()
 
 
 def run_realestate_scraper(params: dict):
@@ -125,24 +116,24 @@ def run_realestate_scraper(params: dict):
         # Reset the stop flag at the start of a run
         stop_scraper_flag['realestate'] = False
         
-        logger.info("Starting real estate scraper...")
+        print("Starting real estate scraper...")
         
         # Run the real estate scraper
         scraper = RealestateIndexScraper(params)
         asyncio.run(scraper.run_dynamic())
 
         if stop_scraper_flag['realestate']:
-            logger.info("Real estate scraper stopped by user command.")
+            print("Real estate scraper stopped by user command.")
             return
 
         # Agar results hain, to pehle unhe database me save karo
         if hasattr(scraper, 'results') and scraper.results:
-            logger.info(f"Found {len(scraper.results)} results in memory, saving to database first.")
+            print(f"Found {len(scraper.results)} results in memory, saving to database first.")
             
             saved_count = 0
             for result in scraper.results:
                 if stop_scraper_flag['realestate']:
-                    logger.info("Real estate scraper stopped processing database write.")
+                    print("Real estate scraper stopped processing database write.")
                     break
                     
                 try:
@@ -166,28 +157,28 @@ def run_realestate_scraper(params: dict):
                     
                     if created:
                         saved_count += 1
-                        logger.debug(f"Saved new real estate record: {search_name}")
+                        print(f"Saved new real estate record: {search_name}")
                         
                 except Exception as e:
-                    logger.error(f"Error saving real estate result to DB: {e}")
-                    logger.debug(f"Problematic result: {result}")
-                    traceback.print_exc()
+                    print(f"Error saving real estate result to DB: {e}")
+                    print(f"Problematic result: {result}")
+                    traceback.format_exc()
 
-            logger.info(f"Successfully saved {saved_count} real estate records to database.")
+            print(f"Successfully saved {saved_count} real estate records to database.")
 
             # Ab, database se data nikal kar Excel file mein save karo
             excel_path = scraper.save_results_to_excel()
             if excel_path:
-                logger.info(f"Real Estate data successfully saved to Excel at: {excel_path}")
+                print(f"Real Estate data successfully saved to Excel at: {excel_path}")
             else:
-                logger.error("Failed to save Excel file from scraper results.")
+                print("Failed to save Excel file from scraper results.")
         
         else:
-            logger.warning("No real estate results found in scraper, nothing to save.")
+            print("No real estate results found in scraper, nothing to save.")
             
     except Exception as e:
-        logger.error(f"Error running real estate scraper: {e}")
-        traceback.print_exc()
+        print(f"Error running real estate scraper: {e}")
+        traceback.format_exc()
         
         # Fallback/Excel reading logic for real estate data (kept from original file)
         possible_locations = [REAL_ESTATE_EXCEL_DIR, OUTPUT_ROOT_DIR,] # New location is first
@@ -205,14 +196,14 @@ def run_realestate_scraper(params: dict):
         # ----------------------------------------------------
         
         if latest_file:
-            logger.info(f"Found real estate Excel file: {latest_file}")
+            print(f"Found real estate Excel file: {latest_file}")
             df = pd.read_excel(latest_file)
-            logger.info(f"Excel file columns: {list(df.columns)}")
+            print(f"Excel file columns: {list(df.columns)}")
             
             saved_count = 0
             for _, row in df.iterrows():
                 if stop_scraper_flag['realestate']:
-                    logger.info("Real estate scraper stopped processing database write.")
+                    print("Real estate scraper stopped processing database write.")
                     break
                     
                 try:
@@ -232,15 +223,15 @@ def run_realestate_scraper(params: dict):
                         saved_count += 1
                         
                 except Exception as e:
-                    logger.error(f"Error saving row: {e}")
-                    traceback.print_exc()
+                    print(f"Error saving row: {e}")
+                    traceback.format_exc()
 
-            logger.info(f"Saved {saved_count} real estate records from file")
+            print(f"Saved {saved_count} real estate records from file")
         else:
-            logger.warning("No real estate Excel file found")
+            print("No real estate Excel file found")
 
     except Exception as e:
-        logger.error(f"Error running real estate scraper: {e}")
-        traceback.print_exc()
+        print(f"Error running real estate scraper: {e}")
+        traceback.format_exc()
         
         

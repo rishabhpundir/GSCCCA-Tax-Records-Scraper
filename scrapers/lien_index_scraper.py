@@ -404,7 +404,8 @@ class GSCCCAScraper:
 
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             results_url = results_df[~results_df['urls'].str.contains('maxrows', case=False, na=False)]
-            self.csv_path = os.path.join(self.lien_data_dir, f"lien_search_results_urls_{timestamp}.csv")
+            search_name = re.sub(r'[^a-zA-Z0-9]', '', self.form_data.get("search_name", "")).replace(" ", "_")
+            self.csv_path = os.path.join(self.lien_data_dir, f"{search_name}_urls_list_{timestamp}.csv")
             results_url.to_csv(self.csv_path, index=False)
             print(f"Success -> Search results' URLs saved to CSV at {self.csv_path}")
 
@@ -427,6 +428,8 @@ class GSCCCAScraper:
             count = 0
             for url in urls:
                 count += 1
+                if count == 4:
+                    break
                 print("-" * 50)
                 print(f"{count}. URL: ", url)
                 
@@ -442,7 +445,7 @@ class GSCCCAScraper:
                 data = await self.parse_lien_data()
                 if data:
                     self.results.append(data)
-                    print(f"Saved data for --> {data.get('Name Selected', 'Unknown')}")
+                    console.print(f"[bold red]Saved data for --> {data.get('direct_party_debtor', 'Unknown')}[/bold red]")
                 else:
                     print(f"No data found")
 
@@ -502,7 +505,7 @@ class GSCCCAScraper:
                 claimants = [safe_text(td) for td in tbody.find_all("td")[1:]]
                 data["reverse_party_claimant"] = "; ".join(claimants)
 
-            # ---------- Viewer URL + Single Page PDF ----------
+            # ---------- PDF Extraction ----------
             viewer_script = soup.find("script", string=lambda t: t and "ViewImage" in t)
             if viewer_script:
                 script_text = viewer_script.string
@@ -519,9 +522,7 @@ class GSCCCAScraper:
                         f"https://search.gsccca.org/Imaging/HTML5Viewer.aspx?" \
                         f"id={lien_id}&key1={book}&key2={page_num}&county={county}&userid={userid}&appid={appid}"
                     )
-                    data["document_url"] = viewer_url
-
-                    # ---------- PDF File Name ----------
+                    data["pdf_document_url"] = viewer_url
                     debtor_name = data.get("direct_party_debtor", "unkown_debtor").split(";")[0][:40]
                     debtor_name = debtor_name.replace(" ", "_").replace(",", "").strip()
                     pdf_name = f"{debtor_name}_page_{page_num}_{county}.pdf"
@@ -556,7 +557,8 @@ class GSCCCAScraper:
                                     await popup.screenshot(path=tmp_img, full_page=True, timeout=30000)
                                     print(f"Full page screenshot saved!")
                             except Exception as screenshot_error:
-                                console.print(f"[red][ERROR] Canvas screenshot failed: {screenshot_error}\nTrying full page screenshot...[/red]")
+                                console.print(f"[red][ERROR] Canvas screenshot failed: {screenshot_error}" \
+                                    "\nTrying full page screenshot...[/red]")
                                 await popup.screenshot(path=tmp_img, full_page=True, timeout=30000)
                                 print(f"Full page screenshot saved!")
 
@@ -573,44 +575,28 @@ class GSCCCAScraper:
                                 text = pytesseract.image_to_string(img, lang="eng")
                                 data["ocr_raw_text"] = text.strip()
 
-                                # extract up to 2 addresses
+                                # extract addresses and total due
                                 addr_list = self.extract_addresses_from_ocr(data["ocr_raw_text"], max_addresses=2)
                                 data["address"] = addr_list[1]["address"] or ""
                                 data["zipcode"] = addr_list[1]["zipcode"] or ""
-                                
-                                proc_img = self.preprocess_page(img)
-                                data["Total Due"] = self.extract_total_due(img=img) or ""
+                                data["total_due"] = self.extract_total_due(img=img) or ""
 
                             except Exception as e:
                                 print(f"[ERROR] OCR extraction failed: {e}")
 
                             os.remove(tmp_img)
-                        else:
-                            print("[WARNING] No canvas found in popup, trying full page screenshot...")
-                            # Fallback: take full page screenshot
-                            tmp_img = os.path.join(self.downloads_dir, f"tmp_{page_num}.png")
-                            await popup.screenshot(path=tmp_img, full_page=True)
-                            with open(pdf_path, "wb") as f:
-                                f.write(img2pdf.convert([tmp_img]))
-                            data["PDF"] = pdf_name
-                            print(f" [INFO] PDF saved (full page fallback) → {pdf_path}")
-
                         await popup.close()
-
                     except Exception as e:
                         print(f"[ERROR] PDF generation failed: {e}")
             return data
         except Exception as e:
-            console.print(f"[red]Error in parse_lien_data: {e}[/red]")
+            console.print(f"[red]Error in parse_lien_data: {e}[/red]\n{traceback.format_exc()}")
             return {}
 
 
-    # ---------- helper: extract up to 2 addresses (Address) ----------
     def extract_addresses_from_ocr(self, text, max_addresses=2):
         """
-        Return list of dicts: [{'address': ..., 'zipcode': ...}, ...] length == max_addresses (padded).
-        Logic: look for lines that contain 'City, ST 12345' pattern (2-letter state + 5-digit zip),
-        then take preceding non-header line(s) as street line when available.
+        Return list of addressses in dicts: [{'address': ..., 'zipcode': ...}, ...]
         """
         try:
             lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
@@ -625,12 +611,9 @@ class GSCCCAScraper:
                         if idx - j < 0:
                             break
                         prev = lines[idx - j]
-                        if re.search(r'\b(County|Tax|Commissioner|Recorded|Doc:|Rept#|VS\b|' \
-                            'Defendant|GRANT|PAYMENT|TOTAL DUE|PHONE|TEL|Fax)\b', prev, re.I):
+                        if re.search(r'\b(County|Tax|Commissioner|Recorded|Doc:|Rept#|VS\b|Defendant|GRANT|PAYMENT|TOTAL DUE|PHONE|TEL|Fax)\b', prev, re.I):
                             continue
-                        if re.search(r'^\d+\s', prev) or re.search(r'\b(St(reet)?|Street|Rd(?!' \
-                            '\w)|Road|Highway|HWY|Ave|Avenue|Blvd|Lane|Ln|Dr(?!\w)|Drive|Way|' \
-                            'Court|Ct|Parkway|PKWY|Memorial|HWY|HW|HWY|WY|SW|NE|N\.E\.|S\.W\.)\b', 
+                        if re.search(r'^\d+\s', prev) or re.search(r'\b(St(reet)?|Street|Rd(?!\w)|Road|Highway|HWY|Ave|Avenue|Blvd|Lane|Ln|Dr(?!\w)|Drive|Way|Court|Ct|Parkway|PKWY|Memorial|HWY|HW|HWY|WY|SW|NE|N\.E\.|S\.W\.)\b', 
                             prev, re.I) or re.search(r'\d', prev):
                             street = prev
                             break
@@ -648,12 +631,28 @@ class GSCCCAScraper:
 
             while len(addresses) < max_addresses:
                 addresses.append({"address": "", "zipcode": ""})
-
             return addresses
         except Exception as e:
             console.print(f"[red]Error in extract_addresses_from_ocr: {e}[/red]")
             return [{"address": "", "zipcode": ""} for _ in range(max_addresses)]
+    
+    
+    def extract_total_due(self, img):          
+        try:
+            pil = img.convert("RGB")
             
+            proc = self.preprocess_page(pil)
+            line = self.find_total_due_line(proc)
+            if line:
+                m = re.search(r'(?<!\d)(\d{1,3}(?:,\d{3})*(?:\.\d{2})|\d+\.\d{2})(?!\d)', line)
+                line = m.group(1).replace(',', '') if m else None
+            line = line if line else "Not found"
+            print(f"Total Due: {line}")
+            return line
+        except Exception as e:
+            console.print(f"[red]Error in extract_total_due: {e}[/red]")
+            return "Error"
+
 
     def remove_table_lines(self, bw_inv: np.ndarray) -> np.ndarray:
         try:
@@ -687,8 +686,10 @@ class GSCCCAScraper:
         except Exception as e:
             console.print(f"[red]Error in preprocess_page: {e}[/red]")
             return np.array(pil_img.convert("L"))
+        
 
     def find_total_due_line(self, proc_img: np.ndarray) -> str | None:
+        """ Find line containing 'Total Due' or similar keywords. """
         try:
             cfg_page = "--oem 3 --psm 6 -l eng -c preserve_interword_spaces=1"
             page_text = pytesseract.image_to_string(proc_img, config=cfg_page)
@@ -709,68 +710,60 @@ class GSCCCAScraper:
         except Exception as e:
             console.print(f"[red]Error in find_total_due_line: {e}[/red]")
             return None
-    
-    
-    def extract_total_due(self, img):          
-        try:
-            pil = img.convert("RGB")
-            
-            proc = self.preprocess_page(pil)
-            line = self.find_total_due_line(proc)
-            if line:
-                m = re.search(r'(?<!\d)(\d{1,3}(?:,\d{3})*(?:\.\d{2})|\d+\.\d{2})(?!\d)', line)
-                line = m.group(1).replace(',', '') if m else None
-            line = line if line else "Not found"
-            print(f"Total Due: {line}")
-            return line
-        except Exception as e:
-            console.print(f"[red]Error in extract_total_due: {e}[/red]")
-            return "Error"
+        
 
-
-    def save_to_excel(self, filename="LienResults.xlsx"):
+    def save_to_excel(self, filename="lien_data.xlsx"):
         """ Save scraped results to Excel with clickable PDF links. """
 
         try:
             if not hasattr(self, "results") or not self.results:
-                print("[WARNING] No results to save")
+                print("[red][WARNING] No results to save![/red]")
                 return
 
             df = pd.DataFrame(self.results)
+            columns = {
+                "county": "County",
+                "direct_party_debtor": "Direct Party (Debtor)",
+                "reverse_party_claimant": "Reverse Party (Claimant)",
+                "address": "Address",
+                "zipcode": "Zipcode",
+                "total_due": "Total Due",
+                "instrument": "Instrument",
+                "date_filed": "Date Filed",
+                "book": "Book",
+                "page": "Page",
+                "description": "Description",
+                "pdf_document_url": "PDF Document URL",
+                "pdf_filename": "View PDF",
+            }
 
-            columns = [
-                "Direct Party (Debtor)", "Reverse Party (Claimant)", "Address", "Zipcode", "Total Due",
-                "County", "Instrument", "Date Filed", "Book", "Page","Description",
-                "PDF Document URL", "PDF",
-            ]
+            df.rename(columns=columns, inplace=True)
+            for data_col, xl_col in columns.items():
+                if xl_col not in df.columns.tolist():
+                    df[xl_col] = ""
 
-            for col in columns:
-                if col not in df.columns:
-                    df[col] = ""
+            df = df[list(columns.values())]
 
-            df = df[columns]
-
-            if "PDF" in df.columns:
-                # IMPORTANT: downloads_dir ab Project Root ke relative hai
-                df["PDF"] = df["PDF"].apply(
+            if "View PDF" in df.columns:
+                df["View PDF"] = df["View PDF"].apply(
                     lambda x: f'=HYPERLINK("file:///{os.path.join(self.downloads_dir, x).replace(os.sep, "/")}", "{x}")'
                     if isinstance(x, str) and x.strip() else ""
                 )
 
             ts = datetime.now().strftime("%Y%m%d_%H%M%S")
             base, ext = os.path.splitext(filename)
-            final_filename = f"{base}_{ts}{ext}"
-            
-            # Use self.excel_output_dir (jo Project Root ke andar hai)
+            search_name = re.sub(r'[^a-zA-Z0-9]', '', self.form_data.get("search_name", "")).replace(" ", "_")
+            final_filename = f"{base}_{search_name}_{ts}{ext}"
             final_path = os.path.join(self.excel_output_dir, final_filename)
 
             with pd.ExcelWriter(final_path, engine="openpyxl") as writer:
                 df.to_excel(writer, index=False)
 
-            print(f"[INFO] Saved {len(df)} records to {final_path}")
+            console.print(f"[bold green]Saved {len(df)} records to --> {final_path}[/bold green]")
+            print("-" * 50)
+            os.remove(self.csv_path)
         except Exception as e:
             console.print(f"[red]Error in save_to_excel: {e}[/red]")
-            
             
 
     async def scrape(self, page_url: str) -> Dict[str, Any]:
@@ -866,7 +859,8 @@ class GSCCCAScraper:
             await self.get_search_results()
             # await self.page.goto("https://search.gsccca.org/Lien/lienfinal.asp?Type=0&County=64&Book=++184&Page=+214&Key=24675067"
             #                      , wait_until="domcontentloaded", timeout=30000)
-            abc = await self.parse_lien_data()
+            # abc = await self.parse_lien_data()
+            
             if stop_scraper_flag['lien']:
                 console.print("[yellow]Stop signal received after search results. Exiting.[/yellow]")
                 await browser.close()
