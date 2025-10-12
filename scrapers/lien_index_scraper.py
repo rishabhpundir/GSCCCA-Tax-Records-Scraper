@@ -430,8 +430,6 @@ class LienIndexScraper:
             for url in urls:
                 await self.stop_check()
                 count += 1
-                if count == 4:
-                    break
                 print("-" * 50)
                 print(f"{count}. URL: ", url)
                 
@@ -790,7 +788,7 @@ class LienIndexScraper:
             await self.page.goto("https://google.com", wait_until="domcontentloaded")
             await self.page.wait_for_timeout(self.time_sleep())
             if STATE_FILE.exists():
-                await context.add_cookies(json.loads(Path(STATE_FILE).read_text())["cookies"])
+                # await context.add_cookies(json.loads(Path(STATE_FILE).read_text())["cookies"])
                 await self.page.goto(self.homepage, wait_until="domcontentloaded", timeout=60000)
                 await self.check_and_handle_announcement()
             else:

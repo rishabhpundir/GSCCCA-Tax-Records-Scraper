@@ -5,13 +5,13 @@ import os
 import json
 import random
 import img2pdf
-import asyncio
 import traceback
 from pathlib import Path
 from datetime import datetime
 
 import pandas as pd
 from PIL import Image
+from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 from rich.console import Console
 import playwright.async_api as pw
@@ -52,17 +52,32 @@ os.makedirs(REAL_ESTATE_EXCEL_DIR, exist_ok=True)
 
 
 # ---------- Utility Function to find latest Excel file -------------------------
-def image_to_pdf(img_path, pdf_path):
+def images_to_pdf(img_paths, pdf_path):
     try:
-        with Image.open(img_path) as image:
-            pdf_bytes = img2pdf.convert(image.filename)
-            with open(pdf_path, "wb") as f:
-                f.write(pdf_bytes)
-        return True
-    except Exception as e:
-        console.print(f"[red]Failed to convert image {img_path} to PDF: {e}[/red]")
-        return False
+        valid_images = []
+        for path in img_paths:
+            try:
+                with Image.open(path) as im:
+                    im.verify()
+                valid_images.append(path)
+            except Exception as e:
+                console.print(f"[yellow]Skipping invalid image {path}: {e}[/yellow]")
 
+        if not valid_images:
+            console.print("[red]No valid images to convert.[/red]")
+            return False
+
+        # Convert the list of valid image paths to a single PDF
+        pdf_bytes = img2pdf.convert(valid_images)
+        with open(pdf_path, "wb") as f:
+            f.write(pdf_bytes)
+
+        console.print(f"[green]Successfully created PDF: {pdf_path}[/green]")
+        return True
+
+    except Exception as e:
+        console.print(f"[red]Failed to create PDF: {e}[/red]")
+        return False
 
 # ---------- Scraper Class -----------------------------------------------------
 class RealEstateIndexScraper:
@@ -246,6 +261,7 @@ class RealEstateIndexScraper:
             await self.page.wait_for_timeout(self.time_sleep(a=4000, b=5000))
             search_name = self.form_data.get("txtSearchName")
             radios = await self.page.query_selector_all("input[name='rdoEntityName']")
+            print("*" * 50)
             console.print(f"[cyan]Found {len(radios)} result(s) for '{search_name}'[/cyan]")
 
             for i in range(len(radios)):
@@ -267,7 +283,8 @@ class RealEstateIndexScraper:
                     await self.page.wait_for_load_state("domcontentloaded", timeout=20000)
                     await self.page.wait_for_timeout(self.time_sleep())
 
-                    await self.step5_parse_documents(search_name, i+1)
+                    # Parse documents
+                    await self.parse_documents(search_name, i+1)
 
                     # Go back to entity selection
                     await self.page.go_back()
@@ -282,10 +299,10 @@ class RealEstateIndexScraper:
             console.print(f"[red]Step 4 error: {e}[/red]")
 
 
-    async def step5_parse_documents(self, search_name: str, entity_idx: int):
+    async def parse_documents(self, search_name: str, entity_idx: int):
         try:
             links = await self.page.query_selector_all("a[href*='final.asp']")
-            console.print(f"[cyan]Found {len(links)} GE/GR document links for entity {entity_idx}[/cyan]")
+            console.print(f"Found {len(links)} GE/GR document links for entity {entity_idx}")
 
             if not links:
                 console.print(f"[yellow]No document links found for entity {entity_idx}[/yellow]")
@@ -303,35 +320,54 @@ class RealEstateIndexScraper:
                     hrefs.append(pdf_url)
 
             for i, pdf_url in enumerate(hrefs):
-                await self.stop_check()
-                    
                 try:
-                    console.print(f"[green]Opening doc {i + 1} for entity {entity_idx}[/green]")
+                    await self.stop_check()
+                    print("-" * 30)
+                    console.print(f"[green]{i + 1}. Opening doc for entity #{entity_idx}[/green]")
                     await self.page.goto(pdf_url, wait_until="domcontentloaded", timeout=30000)
                     await self.page.wait_for_timeout(self.time_sleep())
                     await self.check_and_handle_announcement()
 
-                    # --- Open popup or use same page ---
-                    popup = None
-                    try:
-                        async with self.page.context.expect_page(timeout=5000) as popup_info:
-                            view_button = await self.page.query_selector("input[value='View Image']")
-                            if view_button:
-                                await view_button.click()
-                        popup = await popup_info.value
-                        await popup.wait_for_load_state("domcontentloaded")
-                        console.print(f"[green]Popup opened for doc {i+1}[/green]")
-                    except Exception:
-                        console.print(f"[yellow]No popup opened, using main page for doc {i+1}[/yellow]")
-                        popup = self.page
+                    # ---------- PDF Extraction ----------
+                    html = await self.page.content()
+                    soup = BeautifulSoup(html, "html.parser")
+                    viewer_script = soup.find("script", string=lambda t: t and "ViewImage" in t)
+                    if viewer_script:
+                        script_text = viewer_script.string
+                        match = re.search(r'var iREID\s*=\s*(\d+);', script_text)
+                        if match:
+                            reid = match.group(1)
+                            county = re.search(r'var county\s*=\s*"(\d+)"', script_text).group(1)
+                            book = re.search(r'var book\s*=\s*"(\d+)"', script_text).group(1)
+                            page_num = re.search(r'var page\s*=\s*"(\d+)"', script_text).group(1)
+                            userid = re.search(r'var user\s*=\s*(\d+)', script_text).group(1)
+                            appid = re.search(r'var appid\s*=\s*(\d+)', script_text).group(1)
+
+                            viewer_url = (
+                                f"https://search.gsccca.org/Imaging/HTML5Viewer.aspx?" \
+                                f"id={reid}&key1={book}&key2={page_num}&county={county}&userid={userid}&appid={appid}"
+                            )
+
+                            popup = await self.page.context.new_page()
+                            await popup.goto(viewer_url, wait_until="domcontentloaded", timeout=50000)
+                            await popup.wait_for_timeout(6000)
 
                     # --- Collect thumbnails ---
                     thumb_links = await popup.query_selector_all("a[id*='lvThumbnails_lnkThumbnail']")
-                    console.print(f"[cyan]Found {len(thumb_links)} thumbnails in viewer[/cyan]")
+                    console.print(f"Found {len(thumb_links)} page(s) in viewer...")
 
+                    screenshot_paths = []
                     for j, thumb_link in enumerate(thumb_links):
                         await self.stop_check()
-                            
+                        
+                        # Select "Fit Window" option
+                        await popup.wait_for_selector("td.vtm_zoomSelectCell select", timeout=10000)
+                        await popup.select_option("td.vtm_zoomSelectCell select", "fitwindow")
+                        await popup.wait_for_timeout(2000)
+
+                        await popup.wait_for_selector("div.vtm_imageClipper canvas", timeout=10000, state="attached")
+                        await popup.wait_for_timeout(2000)
+                        canvas = await popup.query_selector("canvas")
                         try:
                             await thumb_link.click()
                             await popup.wait_for_timeout(2000)
@@ -351,51 +387,46 @@ class RealEstateIndexScraper:
 
                             # --- Screenshot canvas and save to PDF ---
                             try:
-                                canvas = await popup.query_selector("canvas")
                                 if canvas:
-                                    # Use the new self.pdf_dir
                                     screenshot_path = Path(os.path.join(self.pdf_dir, f"{safe_title}.png"))
-                                    await canvas.screenshot(path=str(screenshot_path))
-                                    pdf_path = Path(os.path.join(self.pdf_dir, f"{safe_title}.pdf"))
-                                    if image_to_pdf(screenshot_path, pdf_path):
-                                        console.print(f"[blue]Saved PDF: {pdf_path}[/blue]")
-                                        
-                                        # Save result to self.results list
-                                        relative_pdf_path = Path(pdf_path).relative_to(BASE_DIR.parent) 
-                                        result_data = {
-                                            "Search Name": search_name,
-                                            "Entity Index": entity_idx,
-                                            "Doc Index": i + 1,
-                                            "Page Index": j + 1,
-                                            "PDF Viewer URL": popup.url,
-                                            "Real Estate PDF": str(relative_pdf_path)
-                                        }
-                                        self.results.append(result_data)
-                                        console.print(f"[green]Added to results: {result_data['Real Estate PDF']}[/green]")
-                                        
-                                    else:
-                                        console.print(f"[red]PDF conversion failed for {screenshot_path.name}[/red]")
-
-                                    # Delete PNG after conversion
-                                    if screenshot_path.exists():
-                                        screenshot_path.unlink()
-
+                                    await canvas.screenshot(path=str(screenshot_path), timeout=30000)
+                                    screenshot_paths.append(screenshot_path)
+                                    await popup.wait_for_timeout(2000)
                                 else:
                                     console.print("[yellow]Canvas not found for screenshot[/yellow]")
-                            
                             except Exception as e:
-                                console.print(f"[red]Error saving PDF for thumbnail {j+1}: {e}[/red]")
-                                traceback.print_exc()
+                                console.print(f"[red]Error saving PDF for thumbnail {j+1}: {e}[/red]{traceback.format_exc()}")
 
                         except Exception as e:
                             console.print(f"[red]Error processing thumbnail {j+1}: {e}[/red]")
                             continue
 
+                    # Save screenshots to PDF
+                    pdf_path = Path(os.path.join(self.pdf_dir, f"{safe_title}.pdf"))
+                    images_to_pdf(screenshot_paths, pdf_path)
+                    for path in screenshot_paths:
+                        try:
+                            os.remove(path)
+                        except FileNotFoundError:
+                            console.print(f"[yellow]Already missing:[/yellow] {path}")
+                            
+                    # Save result to self.results list
+                    result_data = {
+                        "Search Name": search_name,
+                        "Entity Index": entity_idx,
+                        "Doc Index": i + 1,
+                        "Page Index": j + 1,
+                        "PDF Viewer URL": popup.url,
+                        "Real Estate PDF": str(pdf_path)
+                    }
+                    
+                    self.results.append(result_data)
+
                     # --- Close popup automatically ---
                     if popup and popup != self.page:
                         await popup.close()
-                        await asyncio.sleep(1)
-                        console.print(f"[green]Popup closed for doc {i+1}[/green]")
+                        await self.page.wait_for_timeout(self.time_sleep())
+                        console.print("-" * 30)
                 
                 except Exception as e:
                     console.print(f"[red]Error processing document {i+1}: {e}[/red]")
@@ -403,7 +434,7 @@ class RealEstateIndexScraper:
                     continue
 
         except Exception as e:
-            console.print(f"[bold red]Fatal error in step5_parse_documents: {e}[/bold red]")
+            console.print(f"[bold red]Fatal error in parse_documents: {e}[/bold red]")
             traceback.print_exc()
 
 
@@ -439,10 +470,12 @@ class RealEstateIndexScraper:
                     adjusted_width = min(max_length + 2, 50)
                     worksheet.column_dimensions[column_letter].width = adjusted_width
 
+            print("-" * 50)
             console.print(f"[green]Real Estate Excel saved -> {final_path}[/green]")
             file_size = Path(final_path).stat().st_size / 1024
             console.print(f"[blue]File size: {file_size:.2f} KB[/blue]")
             console.print(f"[blue]Total records saved: {len(df)}[/blue]")
+            print("-" * 50)
             
             return final_path
             
@@ -467,7 +500,7 @@ class RealEstateIndexScraper:
 
             print("Starting Real Estate Index Scraper...")
             context = await self.browser.new_context(
-                storage_state=STATE_FILE if STATE_FILE.exists() else None,
+                storage_state=Path(STATE_FILE) if Path(STATE_FILE).exists() else None,
                 user_agent=UA,
                 locale=LOCALE,
                 timezone_id=TIMEZONE,
@@ -484,7 +517,7 @@ class RealEstateIndexScraper:
             await self.page.goto("https://google.com", wait_until="domcontentloaded")
             await self.page.wait_for_timeout(self.time_sleep())
             if STATE_FILE.exists():
-                await context.add_cookies(json.loads(Path(STATE_FILE).read_text())["cookies"])
+                # await context.add_cookies(json.loads(Path(STATE_FILE).read_text())["cookies"])
                 await self.page.goto(self.homepage_url, wait_until="domcontentloaded", timeout=60000)
                 await self.check_and_handle_announcement()
             else:
