@@ -8,8 +8,8 @@ import pandas as pd
 from django.conf import settings
 from dashboard.models import LienData, RealEstateData
 from dashboard.utils.state import stop_scraper_flag
-from scrapers.lien_index_scraper import GSCCCAScraper
-from scrapers.realestate_index_scraper import RealestateIndexScraper
+from scrapers.lien_index_scraper import LienIndexScraper
+from scrapers.realestate_index_scraper import RealEstateIndexScraper
 from dashboard.utils.find_excel import find_latest_excel_file
 
 
@@ -38,9 +38,8 @@ def run_lien_scraper(params: dict):
         global stop_scraper_flag
         stop_scraper_flag['lien'] = False
         
-        print("Starting lien scraper...")
-        scraper = GSCCCAScraper()
-        asyncio.run(scraper.run_dynamic(params))
+        scraper = LienIndexScraper()
+        asyncio.run(scraper.scrape(params))
         
         if stop_scraper_flag['lien']:
             print("Lien scraper stopped by user command.")
@@ -116,11 +115,9 @@ def run_realestate_scraper(params: dict):
         # Reset the stop flag at the start of a run
         stop_scraper_flag['realestate'] = False
         
-        print("Starting real estate scraper...")
-        
         # Run the real estate scraper
-        scraper = RealestateIndexScraper(params)
-        asyncio.run(scraper.run_dynamic())
+        scraper = RealEstateIndexScraper(params)
+        asyncio.run(scraper.scrape())
 
         if stop_scraper_flag['realestate']:
             print("Real estate scraper stopped by user command.")
@@ -177,61 +174,6 @@ def run_realestate_scraper(params: dict):
             print("No real estate results found in scraper, nothing to save.")
             
     except Exception as e:
-        print(f"Error running real estate scraper: {e}")
-        traceback.format_exc()
-        
-        # Fallback/Excel reading logic for real estate data (kept from original file)
-        possible_locations = [REAL_ESTATE_EXCEL_DIR, OUTPUT_ROOT_DIR,] # New location is first
-        possible_patterns = ["realestate_index*", "realestate*", "RealEstate*"]
-        
-        latest_file = None
-        for location in possible_locations:
-            for pattern in possible_patterns:
-                if location.exists():
-                    files = list(Path(location).glob(f"{pattern}.xlsx")) + list(Path(location).glob(f"{pattern}.xls"))
-                    if files:
-                        latest_candidate = max(files, key=os.path.getmtime, default=None)
-                        if latest_candidate and (latest_file is None or os.path.getmtime(latest_candidate) > os.path.getmtime(latest_file)):
-                            latest_file = latest_candidate
-        # ----------------------------------------------------
-        
-        if latest_file:
-            print(f"Found real estate Excel file: {latest_file}")
-            df = pd.read_excel(latest_file)
-            print(f"Excel file columns: {list(df.columns)}")
-            
-            saved_count = 0
-            for _, row in df.iterrows():
-                if stop_scraper_flag['realestate']:
-                    print("Real estate scraper stopped processing database write.")
-                    break
-                    
-                try:
-                    row_data = {k: (str(v) if pd.notna(v) else '') for k, v in row.items()}
-                    
-                    obj, created = RealEstateData.objects.update_or_create(
-                        search_name=row_data.get('search_name', '')[:255],
-                        entity_index=int(row_data.get('entity_index', 0) or 0),
-                        doc_index=int(row_data.get('doc_index', 0) or 0),
-                        defaults={
-                            'pdf_viewer': row_data.get('pdf_viewer', ''),
-                            'realestate_pdf': row_data.get('final_url', ''),
-                        }
-                    )
-                    
-                    if created:
-                        saved_count += 1
-                        
-                except Exception as e:
-                    print(f"Error saving row: {e}")
-                    traceback.format_exc()
-
-            print(f"Saved {saved_count} real estate records from file")
-        else:
-            print("No real estate Excel file found")
-
-    except Exception as e:
-        print(f"Error running real estate scraper: {e}")
-        traceback.format_exc()
+        print(f"Error running real estate scraper: {e}\n{traceback.format_exc()}")
         
         

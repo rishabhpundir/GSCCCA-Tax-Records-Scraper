@@ -40,7 +40,7 @@ def start_scraper(request):
             scraper_type = data.get('scraper_type')
             
             if scraper_type == 'lien':
-                # Convert dates for lien scraper
+                # Convert dates
                 raw_to_date = request.POST.get("to_date")
                 raw_from_date = request.POST.get("from_date")
                 to_date_mmddyyyy = dt.date.fromisoformat(raw_to_date).strftime("%m/%d/%Y") if raw_to_date else ""
@@ -55,6 +55,13 @@ def start_scraper(request):
                 )
                 msg = 'Lien scraper started'
             elif scraper_type == 'realestate':
+                # Convert dates for scraper
+                raw_to_date = request.POST.get("txtFromDate")
+                raw_from_date = request.POST.get("txtToDate")
+                to_date_mmddyyyy = dt.date.fromisoformat(raw_to_date).strftime("%m/%d/%Y") if raw_to_date else ""
+                from_date_mmddyyyy = dt.date.fromisoformat(raw_from_date).strftime("%m/%d/%Y") if raw_from_date else ""
+                data['txtFromDate'] = to_date_mmddyyyy
+                data['txtToDate'] = from_date_mmddyyyy
                 # Real estate scraper now accepts parameters from the form
                 thread = threading.Thread(
                     target=run_realestate_scraper, 

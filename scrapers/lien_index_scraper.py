@@ -12,30 +12,24 @@ from datetime import datetime
 from urllib.parse import urljoin
     
 import cv2
-import certifi
 import img2pdf
 import numpy as np
 import pytesseract
 import pandas as pd
 from PIL import Image
-from typing import Any, Dict
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 from rich.console import Console
 import playwright.async_api as pw
-from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
-# Corrected Import to break circular dependency
 from dashboard.utils.state import stop_scraper_flag 
-
 
 # Load environment variables
 load_dotenv()
 console = Console()
 
-
 # ---------- config -------------------------------------------------------------
-HEADLESS = False 
+HEADLESS = True if os.getenv("HEADLESS", "False").lower() in ("true", "yes") else False
 STATE_FILE = Path("cookies.json")
 TAX_EMAIL = os.getenv("GSCCCA_USERNAME")
 TAX_PASSWORD = os.getenv("GSCCCA_PASSWORD")
@@ -43,12 +37,13 @@ LOCALE = "en-GB"
 TIMEZONE = "UTC"
 VIEWPORT = {"width": 1366, "height": 900}
 UA_DICT = {
-    "mac": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
+    "macos": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
     "linux": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
-    "win": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome"
+    "windows": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome"
 }
-UA_TYPE = "mac"
-UA = UA_DICT.get(UA_TYPE, UA_DICT["win"])
+
+UA = UA_DICT.get(os.getenv("OS_NAME"), "windows")
+
 EXTRA_HEADERS = {
     "Accept-Language": "en-GB,en-US;q=0.9,en;q=0.8"
 }
@@ -64,11 +59,13 @@ except Exception as e:
 
 
 # ---------- core scraping ----------------------------------------------------
-class GSCCCAScraper:
+class LienIndexScraper:
     """Scrape the latest tax records from GSCCCA pages."""
 
     def __init__(self) -> None:
         try:
+            self.playwright = None
+            self.browser = None
             self.page = None
             self.email = TAX_EMAIL
             self.password = TAX_PASSWORD
@@ -89,16 +86,23 @@ class GSCCCAScraper:
             
             console.print(f"[green]Lien Output directory --> {self.excel_output_dir}[/green]")
         except Exception as e:
-            console.print(f"[red]Error initializing GSCCCAScraper: {e}[/red]")
+            console.print(f"[red]Error initializing LienIndexScraper: {e}[/red]")
             raise
     
 
     def time_sleep(self, a: int = 2500, b: int = 5000) -> int:
-        try:
-            return random.uniform(a, b)
-        except Exception as e:
-            console.print(f"[red]Error in time_sleep: {e}[/red]")
-            return random.uniform(2000, 4000)
+        return random.uniform(a, b)
+        
+        
+    async def stop_check(self):
+        """ Global stop flag to immediately exit scraping if invoked by user. """
+        if stop_scraper_flag['lien']:
+            console.print("[yellow]Lien Index Scraper received immediate stop signal. Exiting...[/yellow]")
+            if self.browser:
+                await self.browser.close()
+            if self.playwright:
+                await self.playwright.stop()
+            return
 
 
     async def dump_cookies(self, out_file="cookies.json"):
@@ -144,10 +148,10 @@ class GSCCCAScraper:
         try:
             current_url = self.page.url
             if "Announcement" in current_url:
-                print("[INFO] Announcement page detected. Redirecting to name search...")
                 await self.page.select_option("#Options", "dismiss")
                 await self.page.wait_for_timeout(1000)
                 await self.page.click("input[name='Continue']")
+                print("Announcement page detected. Turning off...")
         except Exception as e:
             console.print(f"[red]Error handling announcement: {e}[/red]")
             
@@ -200,9 +204,9 @@ class GSCCCAScraper:
 
 
     async def start_search(self):
-        """Go directly to Name Search page."""
+        """Name Search page."""
         try:
-            print("[STEP 2] Going directly to Name Search page...")
+            print("Executing Name Search...")
             await self.page.goto(self.name_search_url, wait_until="domcontentloaded", timeout=60000)
             await self.page.wait_for_timeout(self.time_sleep())
             await self.check_and_handle_announcement()
@@ -242,7 +246,7 @@ class GSCCCAScraper:
 
 
     async def get_search_results(self, email: str = None, password: str = None):
-        """On liennames.asp page, process ALL rows with Occurs values."""
+        """Process ALL rows with Occurs values."""
         print(f"Conducting Lien Search...")
         try:
             await self.page.wait_for_selector("table.name_results", timeout=30_000)
@@ -257,12 +261,9 @@ class GSCCCAScraper:
             results_df = pd.DataFrame(columns=['urls'])
             
             for row_index in range(total_rows):
+                await self.stop_check()
                 print("*" * 50)
                 print(f"Exracting URLs from Row {row_index + 1} of {total_rows}")
-                # Stop check
-                if stop_scraper_flag['lien']:
-                    console.print("[yellow]Stop signal received in get_search_results.[/yellow]")
-                    break
                     
                 try:
                     await self.page.wait_for_selector("table.name_results", timeout=15000)
@@ -351,7 +352,7 @@ class GSCCCAScraper:
                             for selector in next_selectors:
                                 next_page_link = await self.page.query_selector(selector)
 
-                            if next_page_link and not stop_scraper_flag['lien']:
+                            if next_page_link:
                                 next_page += 1
                                 
                                 # Get the href for recovery
@@ -378,6 +379,7 @@ class GSCCCAScraper:
                         if not back_success:
                             try:
                                 await self.page.goto(self.name_search_url, wait_until="domcontentloaded", timeout=30000)
+                                await self.check_and_handle_announcement()
                                 # Refill the form and search again
                                 await self.start_search()
                                 await self.page.wait_for_selector("table.name_results", timeout=15000)
@@ -399,8 +401,7 @@ class GSCCCAScraper:
                         continue
                         
                 except Exception as e:
-                    print(f"[ERROR] Failed to process row {row_index + 1}: {e}")
-                    traceback.print_exc()
+                    print(f"[ERROR] Failed to process row {row_index + 1}: {e}\n{traceback.format_exc()}")
 
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             results_url = results_df[~results_df['urls'].str.contains('maxrows', case=False, na=False)]
@@ -427,6 +428,7 @@ class GSCCCAScraper:
         try:
             count = 0
             for url in urls:
+                await self.stop_check()
                 count += 1
                 if count == 4:
                     break
@@ -434,18 +436,14 @@ class GSCCCAScraper:
                 print(f"{count}. URL: ", url)
                 
                 await self.page.goto(url, wait_until="domcontentloaded", timeout=60000)
+                await self.check_and_handle_announcement()
                 await self.page.wait_for_timeout(self.time_sleep())
-
-                # Stop check
-                if stop_scraper_flag['lien']:
-                    console.print("[yellow]Stop signal received. Stopping lien scraper.[/yellow]")
-                    break
 
                 # Parse data
                 data = await self.parse_lien_data()
                 if data:
                     self.results.append(data)
-                    console.print(f"[bold red]Saved data for --> {data.get('direct_party_debtor', 'Unknown')}[/bold red]")
+                    console.print(f"[cyan]Saved data for --> {data.get('direct_party_debtor', 'Unknown')}[/cyan]")
                 else:
                     print(f"No data found")
 
@@ -456,17 +454,13 @@ class GSCCCAScraper:
 
     async def parse_lien_data(self):
         """ Helper: Parse lien detail page """
+        await self.stop_check()
         try:
             await self.page.wait_for_load_state("domcontentloaded", timeout=15000)
             await self.page.wait_for_timeout(self.time_sleep())
             html = await self.page.content()
             soup = BeautifulSoup(html, "html.parser")
             data = {}
-            
-            # Stop check
-            if stop_scraper_flag['lien']:
-                console.print("[yellow]Stop signal received during parse_lien_data.[/yellow]")
-                return {}
 
             def safe_text(el):
                 return el.get_text(" ", strip=True) if el else ""
@@ -533,11 +527,6 @@ class GSCCCAScraper:
                         await popup.goto(viewer_url, timeout=50000)
                         await popup.wait_for_load_state("domcontentloaded")
                         await self.page.wait_for_timeout(3000)
-                        
-                        # Stop check before screenshot/OCR
-                        if stop_scraper_flag['lien']:
-                            await popup.close()
-                            return data
 
                         # Select "Fit Window" option
                         await popup.wait_for_selector("td.vtm_zoomSelectCell select", timeout=10000)
@@ -759,44 +748,20 @@ class GSCCCAScraper:
             with pd.ExcelWriter(final_path, engine="openpyxl") as writer:
                 df.to_excel(writer, index=False)
 
+            print("-" * 50)
             console.print(f"[bold green]Saved {len(df)} records to --> {final_path}[/bold green]")
             print("-" * 50)
             os.remove(self.csv_path)
         except Exception as e:
             console.print(f"[red]Error in save_to_excel: {e}[/red]")
-            
-
-    async def scrape(self, page_url: str) -> Dict[str, Any]:
-        """Open *url* in the current page and return latest post data."""
-        try:
-            await self.page.goto(page_url, wait_until="domcontentloaded", timeout=60_000)
-            await self.page.wait_for_timeout(3000)
-
-            title = await self.page.title()
-
-            rows = await self.page.query_selector_all("table tr")
-            data = []
-            for row in rows:
-                text = await row.inner_text()
-                data.append(text.strip())
-
-            return {
-                "page_title": title,
-                "row_count": len(rows),
-                "rows": data[:10]
-            }
-
-        except Exception as e:
-            console.print(f"[red]Scrape error: {e}[/red]")
-            return {}
 
 
-    async def run_dynamic(self, form_data: dict):
+    async def scrape(self, form_data: dict):
         """Run lien scraper dynamically with Django form data"""
         try:
             self.form_data = form_data
-            playwright = await pw.async_playwright().start()
-            browser = await playwright.chromium.launch(
+            self.playwright = await pw.async_playwright().start()
+            self.browser = await self.playwright.chromium.launch(
                 headless=HEADLESS,
                 channel="chrome",
                 args=[
@@ -806,8 +771,8 @@ class GSCCCAScraper:
                 ]
             )
 
-            print("Starting scraper...")
-            context = await browser.new_context(
+            print("Starting Lien Index Scraper...")
+            context = await self.browser.new_context(
                 storage_state=STATE_FILE if STATE_FILE.exists() else None,
                 user_agent=UA,
                 locale=LOCALE,
@@ -822,77 +787,46 @@ class GSCCCAScraper:
             self.context = context
 
             # login if needed
+            await self.page.goto("https://google.com", wait_until="domcontentloaded")
+            await self.page.wait_for_timeout(self.time_sleep())
             if STATE_FILE.exists():
                 await context.add_cookies(json.loads(Path(STATE_FILE).read_text())["cookies"])
                 await self.page.goto(self.homepage, wait_until="domcontentloaded", timeout=60000)
                 await self.check_and_handle_announcement()
             else:
-                await self.page.goto("https://google.com", wait_until="domcontentloaded")
-                await self.page.wait_for_timeout(self.time_sleep(3, 5))
                 await self.page.goto(self.login_url, wait_until="domcontentloaded")
+                await self.check_and_handle_announcement()
                 if not await self.check_session():
                     print("Attempting fresh login...")
                     await self.login()
                     await self.page.wait_for_timeout(self.time_sleep())
                         
-            # Global stop check before starting core work
-            if stop_scraper_flag['lien']:
-                console.print("[yellow]Scraper started but received immediate stop signal. Exiting.[/yellow]")
-                await browser.close()
-                await playwright.stop()
-                return
-
-            # --- Steps using form data ---
+            await self.stop_check()
             if not await self.check_session():
                 console.print("[yellow]Session invalid... logging in again...[/yellow]")
                 await self.login()
                 await self.page.wait_for_timeout(self.time_sleep())
 
+            # Search using form data
             await self.start_search()
-            
-            if stop_scraper_flag['lien']:
-                console.print("[yellow]Stop signal received after search start. Exiting.[/yellow]")
-                await browser.close()
-                await playwright.stop()
-                return
                 
+            # Extract all search result URLs
             await self.get_search_results()
+            
             # await self.page.goto("https://search.gsccca.org/Lien/lienfinal.asp?Type=0&County=64&Book=++184&Page=+214&Key=24675067"
             #                      , wait_until="domcontentloaded", timeout=30000)
             # abc = await self.parse_lien_data()
             
-            if stop_scraper_flag['lien']:
-                console.print("[yellow]Stop signal received after search results. Exiting.[/yellow]")
-                await browser.close()
-                await playwright.stop()
-                return
-                
+            # Process all result URLs
             await self.process_result_urls()
+            
+            # Save data to excel
             self.save_to_excel()
-
-            await browser.close()
-            await playwright.stop()
         except Exception as e:
-            console.print(f"[red]Error in run_dynamic: {e}[/red]")
-            traceback.print_exc()
+            console.print(f"[red]Error in run_dynamic: {e}[/red]\n{traceback.format_exc()}")
+        finally:
+            if self.browser:
+                await self.browser.close()
+            if self.playwright:
+                await self.playwright.stop()
 
-
-async def main() -> None:
-    try:
-        scraper = GSCCCAScraper()
-        await scraper.run()
-    except Exception as e:
-        console.print(f"[red]Error in main: {e}[/red]")
-        traceback.print_exc()
-
-
-if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        console.print("\n[bold yellow]Interrupted by user![/bold yellow]\n")
-    except Exception as e:
-        console.print(f"\n[bold red]Unexpected error: {e}[/bold red]\n")
-        traceback.print_exc()
-    finally:
-        console.print("[bold green]Exiting...[/bold green]")
