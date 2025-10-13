@@ -5,20 +5,19 @@ import re
 import html
 import json
 import random
-import asyncio
 import traceback
 from pathlib import Path
 from datetime import datetime
 from urllib.parse import urljoin
-    
+
 import cv2
 import img2pdf
 import numpy as np
 import pytesseract
 import pandas as pd
-from PIL import Image
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
+from PIL import Image, ImageOps
 from rich.console import Console
 import playwright.async_api as pw
 
@@ -35,7 +34,7 @@ TAX_EMAIL = os.getenv("GSCCCA_USERNAME")
 TAX_PASSWORD = os.getenv("GSCCCA_PASSWORD")
 LOCALE = "en-GB"
 TIMEZONE = "UTC"
-VIEWPORT = {"width": 1366, "height": 900}
+VIEWPORT = {"width": 1920, "height": 1080}
 UA_DICT = {
     "macos": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
     "linux": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
@@ -522,14 +521,14 @@ class LienIndexScraper:
 
                     try:
                         popup = await self.page.context.new_page()
-                        await popup.goto(viewer_url, timeout=50000)
-                        await popup.wait_for_load_state("domcontentloaded")
-                        await self.page.wait_for_timeout(3000)
+                        await popup.goto(viewer_url, wait_until="domcontentloaded", timeout=50000)
+                        await self.page.wait_for_timeout(5000)
 
                         # Select "Fit Window" option
                         await popup.wait_for_selector("td.vtm_zoomSelectCell select", timeout=10000)
                         await popup.select_option("td.vtm_zoomSelectCell select", "fitwindow")
                         await self.page.wait_for_timeout(2000)
+                        await popup.locator('img[title="Rotate Right"]').click()
 
                         await popup.wait_for_selector("div.vtm_imageClipper canvas", timeout=10000, state="attached")
                         await self.page.wait_for_timeout(2000)
@@ -549,7 +548,13 @@ class LienIndexScraper:
                                 await popup.screenshot(path=tmp_img, full_page=True, timeout=30000)
                                 print(f"Full page screenshot saved!")
 
-                            # Convert single PNG to PDF
+                            # Rotate CCW once and overwrite
+                            with Image.open(tmp_img) as im:
+                                im = ImageOps.exif_transpose(im)
+                                im = im.rotate(90, expand=True)
+                                im.save(tmp_img)
+
+                            # now convert the rotated image to PDF
                             with open(pdf_path, "wb") as f:
                                 f.write(img2pdf.convert([tmp_img]))
 

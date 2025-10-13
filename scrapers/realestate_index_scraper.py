@@ -10,9 +10,9 @@ from pathlib import Path
 from datetime import datetime
 
 import pandas as pd
-from PIL import Image
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
+from PIL import Image, ImageOps
 from rich.console import Console
 import playwright.async_api as pw
 
@@ -28,7 +28,7 @@ TAX_EMAIL = os.getenv("GSCCCA_USERNAME")
 TAX_PASSWORD = os.getenv("GSCCCA_PASSWORD")
 LOCALE = "en-GB"
 TIMEZONE = "UTC"
-VIEWPORT = {"width": 1366, "height": 900}
+VIEWPORT = {"width": 1920, "height": 1080}
 UA_DICT = {
     "macos": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
     "linux": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
@@ -68,6 +68,12 @@ def images_to_pdf(img_paths, pdf_path):
             return False
 
         # Convert the list of valid image paths to a single PDF
+        for tmp_img in valid_images:
+            with Image.open(tmp_img) as im:
+                im = ImageOps.exif_transpose(im)
+                im = im.rotate(90, expand=True)
+                im.save(tmp_img)
+                
         pdf_bytes = img2pdf.convert(valid_images)
         with open(pdf_path, "wb") as f:
             f.write(pdf_bytes)
@@ -363,14 +369,14 @@ class RealEstateIndexScraper:
                         # Select "Fit Window" option
                         await popup.wait_for_selector("td.vtm_zoomSelectCell select", timeout=10000)
                         await popup.select_option("td.vtm_zoomSelectCell select", "fitwindow")
-                        await popup.wait_for_timeout(2000)
+                        await popup.wait_for_timeout(1500)
 
                         await popup.wait_for_selector("div.vtm_imageClipper canvas", timeout=10000, state="attached")
-                        await popup.wait_for_timeout(2000)
+                        await popup.wait_for_timeout(1500)
                         canvas = await popup.query_selector("canvas")
                         try:
                             await thumb_link.click()
-                            await popup.wait_for_timeout(2000)
+                            await popup.wait_for_timeout(5000)
 
                             # --- Extract Book & Page Number from header ---
                             try:
@@ -389,6 +395,8 @@ class RealEstateIndexScraper:
                             try:
                                 if canvas:
                                     screenshot_path = Path(os.path.join(self.pdf_dir, f"{safe_title}.png"))
+                                    await popup.locator('img[title="Rotate Right"]').click()
+                                    await popup.wait_for_timeout(1500)
                                     await canvas.screenshot(path=str(screenshot_path), timeout=30000)
                                     screenshot_paths.append(screenshot_path)
                                     await popup.wait_for_timeout(2000)

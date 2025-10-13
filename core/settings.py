@@ -77,7 +77,7 @@ WSGI_APPLICATION = 'core.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        'NAME': os.path.join(BASE_DIR, 'db.sqlite3'),
     }
 }
 
@@ -124,7 +124,6 @@ STATIC_URL = 'static/'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-
 # ✅ Ensure logs folder exists
 LOGS_DIR = os.path.join(BASE_DIR, "logs")
 os.makedirs(LOGS_DIR, exist_ok=True)
@@ -144,9 +143,9 @@ LOGGING = {
     },
     'handlers': {
         'file': {
-            'level': 'INFO',  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+            'level': 'INFO',
             'class': 'logging.FileHandler',
-            'filename': os.path.join(LOGS_DIR, 'app.log'),  # ✅ ab safe hai
+            'filename': os.path.join(LOGS_DIR, 'logs.log'),
             'formatter': 'verbose',
         },
         'console': {
@@ -161,10 +160,11 @@ LOGGING = {
             'level': 'INFO',
             'propagate': True,
         },
-        'dashboard': {   # <- apna app ka naam
+        'dashboard': {
             'handlers': ['file', 'console'],
             'level': 'DEBUG',
             'propagate': False,
         },
     },
 }
+
