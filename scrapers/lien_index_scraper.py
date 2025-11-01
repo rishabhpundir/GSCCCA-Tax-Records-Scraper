@@ -248,7 +248,7 @@ class LienIndexScraper:
         """Process ALL rows with Occurs values."""
         print(f"Conducting Lien Search...")
         try:
-            breakpoint()
+            # breakpoint()
             await self.page.wait_for_selector("table.name_results", state="visible", timeout=60000)
             await self.page.wait_for_timeout(self.time_sleep())
             
