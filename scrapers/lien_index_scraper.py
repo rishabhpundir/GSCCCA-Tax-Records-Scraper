@@ -34,7 +34,7 @@ TAX_EMAIL = os.getenv("GSCCCA_USERNAME")
 TAX_PASSWORD = os.getenv("GSCCCA_PASSWORD")
 LOCALE = "en-GB"
 TIMEZONE = "UTC"
-VIEWPORT = {"width": 1920, "height": 1080}
+VIEWPORT = {"width": 1366, "height": 900}
 UA_DICT = {
     "macos": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
     "linux": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
@@ -89,7 +89,7 @@ class LienIndexScraper:
             raise
     
 
-    def time_sleep(self, a: int = 2500, b: int = 5000) -> int:
+    def time_sleep(self, a: int = 3000, b: int = 5000) -> int:
         return random.uniform(a, b)
         
         
@@ -248,7 +248,9 @@ class LienIndexScraper:
         """Process ALL rows with Occurs values."""
         print(f"Conducting Lien Search...")
         try:
-            await self.page.wait_for_selector("table.name_results", timeout=30_000)
+            breakpoint()
+            await self.page.wait_for_selector("table.name_results", state="visible", timeout=60000)
+            await self.page.wait_for_timeout(self.time_sleep())
             
             # Get total number of rows initially
             rows = await self.page.query_selector_all("table.name_results tr")
@@ -280,7 +282,6 @@ class LienIndexScraper:
                     radio = await cols[0].query_selector("input[type='radio']")
                     
                     try:
-                        occurs = int(occurs_text.strip())
                         if not radio:
                             print(f"[WARNING] No radio button found for row {row_index + 1}, skipping")
                             continue
@@ -577,9 +578,9 @@ class LienIndexScraper:
                                 print(f"[ERROR] OCR extraction failed: {e}")
 
                             os.remove(tmp_img)
-                        await popup.close()
                     except Exception as e:
                         print(f"[ERROR] PDF generation failed: {e}")
+                    await popup.close()
             return data
         except Exception as e:
             console.print(f"[red]Error in parse_lien_data: {e}[/red]\n{traceback.format_exc()}")
@@ -826,7 +827,7 @@ class LienIndexScraper:
             # Save data to excel
             self.save_to_excel()
         except Exception as e:
-            console.print(f"[red]Error in run_dynamic: {e}[/red]\n{traceback.format_exc()}")
+            console.print(f"[red]Error in scrape: {e}[/red]\n{traceback.format_exc()}")
         finally:
             if self.browser:
                 await self.browser.close()
