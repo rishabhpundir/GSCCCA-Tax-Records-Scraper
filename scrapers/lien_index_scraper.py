@@ -248,7 +248,6 @@ class LienIndexScraper:
         """Process ALL rows with Occurs values."""
         print(f"Conducting Lien Search...")
         try:
-            breakpoint()
             await self.page.wait_for_selector("table.name_results", state="visible", timeout=60000)
             await self.page.wait_for_timeout(self.time_sleep())
             
@@ -434,6 +433,9 @@ class LienIndexScraper:
                 print(f"{count}. URL: ", url)
                 
                 await self.page.goto(url, wait_until="domcontentloaded", timeout=60000)
+                if await self.page.locator("body:has-text('CANCELLATION')").count() > 0:
+                    print(f"⚠️ 'CANCELLATION' found on page. Skipping: {url}")
+                    continue
                 await self.check_and_handle_announcement()
                 await self.page.wait_for_timeout(self.time_sleep())
 
