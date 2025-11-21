@@ -126,6 +126,8 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # ✅ Ensure logs folder exists
 LOGS_DIR = os.path.join(BASE_DIR, "logs")
+INPUT_DIR = os.path.join(BASE_DIR, "input")
+os.makedirs(INPUT_DIR, exist_ok=True)
 os.makedirs(LOGS_DIR, exist_ok=True)
 
 LOGGING = {

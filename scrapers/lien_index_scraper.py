@@ -47,6 +47,9 @@ EXTRA_HEADERS = {
     "Accept-Language": "en-GB,en-US;q=0.9,en;q=0.8"
 }
 TOTAL_LINE_REGEX = re.compile(r'(TOTAL\s*DUE|TOTALDUE)', re.I)
+AMOUNT_PATTERN = re.compile(
+    r'\$\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]+)?|[0-9]+(?:\.[0-9]+)?)'
+)
 
 
 # load Tesseract path for Windows if needed
@@ -70,20 +73,19 @@ class LienIndexScraper:
             self.password = TAX_PASSWORD
             self.form_data = {}
             self.csv_path = ""
+            self.county_folder = ""
             self.homepage = "https://www.gsccca.org/"
             self.login_url = "https://apps.gsccca.org/login.asp"
             self.name_search_url = "https://search.gsccca.org/Lien/namesearch.asp"
             self.results = []
             
             script_dir = Path(__file__).parent.absolute()
+            self.county_folder_path = ""
             self.base_output_dir = os.path.join(script_dir.parent, "output") 
-            self.lien_data_dir = os.path.join(self.base_output_dir, "lien")
-            self.downloads_dir = os.path.join(self.lien_data_dir, "documents") 
-            os.makedirs(self.downloads_dir, exist_ok=True)
-            self.excel_output_dir = self.lien_data_dir 
-            os.makedirs(self.excel_output_dir, exist_ok=True)
+            self.lien_output_dir = os.path.join(self.base_output_dir, "lien")
+            os.makedirs(self.lien_output_dir, exist_ok=True)
             
-            console.print(f"[green]Lien Output directory --> {self.excel_output_dir}[/green]")
+            console.print(f"[green]Lien Output directory --> {self.lien_output_dir}[/green]")
         except Exception as e:
             console.print(f"[red]Error initializing LienIndexScraper: {e}[/red]")
             raise
@@ -91,6 +93,20 @@ class LienIndexScraper:
 
     def time_sleep(self, a: int = 3000, b: int = 5000) -> int:
         return random.uniform(a, b)
+    
+    
+    def extract_amount(self, desc: str):
+        """Return amount as float, or None if not found."""
+        if not isinstance(desc, str):
+            return None
+
+        m = AMOUNT_PATTERN.search(desc)
+        if not m:
+            return ""
+
+        raw = m.group(1)
+        raw = raw.replace(',', '')
+        return str(raw)
         
         
     async def stop_check(self):
@@ -251,6 +267,22 @@ class LienIndexScraper:
             await self.page.wait_for_selector("table.name_results", state="visible", timeout=60000)
             await self.page.wait_for_timeout(self.time_sleep())
             
+            name_strongs = await self.page.locator(
+                "//td[normalize-space()='Name Searched:']/following-sibling::td//strong"
+            ).all_inner_texts()
+
+            searched_strongs = await self.page.locator(
+                "//td[normalize-space()='Searched:']/following-sibling::td//strong"
+            ).all_inner_texts()
+
+            all_values = searched_strongs + name_strongs
+            self.county_folder = "_".join([t.strip().lower().replace(" ", "_") for t in all_values])
+            
+            self.county_folder_path = os.path.join(self.lien_output_dir, self.county_folder)
+            self.documents_dir = os.path.join(self.county_folder_path, "documents") 
+            os.makedirs(self.county_folder_path, exist_ok=True)
+            os.makedirs(self.documents_dir, exist_ok=True)
+            
             # Get total number of rows initially
             rows = await self.page.query_selector_all("table.name_results tr")
             total_rows = len(rows) - 1  # Exclude header
@@ -405,7 +437,7 @@ class LienIndexScraper:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             results_url = results_df[~results_df['urls'].str.contains('maxrows', case=False, na=False)]
             search_name = re.sub(r'[^a-zA-Z0-9]', '', self.form_data.get("search_name", "")).replace(" ", "_")
-            self.csv_path = os.path.join(self.lien_data_dir, f"{search_name}_urls_list_{timestamp}.csv")
+            self.csv_path = os.path.join(self.county_folder_path, f"{search_name}_urls_list_{timestamp}.csv")
             results_url.to_csv(self.csv_path, index=False)
             print(f"Success -> Search results' URLs saved to CSV at {self.csv_path}")
 
@@ -425,12 +457,10 @@ class LienIndexScraper:
         print(f"Initiating lien data extraction...\nTotal URLs count: {len(urls)}")
 
         try:
-            count = 0
-            for url in urls:
+            for index, url in enumerate(urls, 1):
                 await self.stop_check()
-                count += 1
                 print("-" * 50)
-                print(f"{count}. URL: ", url)
+                print(f"{index}. URL: ", url)
                 
                 await self.page.goto(url, wait_until="domcontentloaded", timeout=60000)
                 if await self.page.locator("body:has-text('CANCELLATION')").count() > 0:
@@ -486,6 +516,7 @@ class LienIndexScraper:
                 tbody = desc_table.find_parent("table")
                 desc_val = safe_text(tbody.find_all("tr")[1].find("td"))
                 data["description"] = desc_val
+                data["amount"] = self.extract_amount(desc_val)
 
             debtor_table = soup.find("td", string=lambda t: t and "Direct Party (Debtor)" in t)
             if debtor_table:
@@ -520,7 +551,7 @@ class LienIndexScraper:
                     debtor_name = data.get("direct_party_debtor", "unkown_debtor").split(";")[0][:40]
                     debtor_name = debtor_name.replace(" ", "_").replace(",", "").strip()
                     pdf_name = f"{debtor_name}_page_{page_num}_{county}.pdf"
-                    pdf_path = os.path.join(self.downloads_dir, pdf_name)
+                    pdf_path = os.path.join(self.documents_dir, pdf_name)
 
                     try:
                         popup = await self.page.context.new_page()
@@ -538,7 +569,7 @@ class LienIndexScraper:
                         canvas = await popup.query_selector("div.vtm_imageClipper canvas")
 
                         if canvas:
-                            tmp_img = os.path.join(self.downloads_dir, f"tmp_{page_num}.png")
+                            tmp_img = os.path.join(self.documents_dir, f"tmp_{page_num}.png")
                             try:
                                 await canvas.screenshot(path=tmp_img, timeout=30000)
                                 if not (os.path.exists(tmp_img) and os.path.getsize(tmp_img) > 0):
@@ -728,6 +759,7 @@ class LienIndexScraper:
                 "book": "Book",
                 "page": "Page",
                 "description": "Description",
+                "amount": "Amount",
                 "pdf_document_url": "PDF Document URL",
                 "pdf_filename": "View PDF",
             }
@@ -741,7 +773,7 @@ class LienIndexScraper:
 
             if "View PDF" in df.columns:
                 df["View PDF"] = df["View PDF"].apply(
-                    lambda x: f'=HYPERLINK("file:///{os.path.join(self.downloads_dir, x).replace(os.sep, "/")}", "{x}")'
+                    lambda x: f'=HYPERLINK("file:///{os.path.join(self.documents_dir, x).replace(os.sep, "/")}", "{x}")'
                     if isinstance(x, str) and x.strip() else ""
                 )
 
@@ -749,7 +781,7 @@ class LienIndexScraper:
             base, ext = os.path.splitext(filename)
             search_name = re.sub(r'[^a-zA-Z0-9]', '', self.form_data.get("search_name", "")).replace(" ", "_")
             final_filename = f"{base}_{search_name}_{ts}{ext}"
-            final_path = os.path.join(self.excel_output_dir, final_filename)
+            final_path = os.path.join(self.county_folder_path, final_filename)
 
             with pd.ExcelWriter(final_path, engine="openpyxl") as writer:
                 df.to_excel(writer, index=False)
