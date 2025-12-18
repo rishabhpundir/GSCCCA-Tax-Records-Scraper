@@ -29,12 +29,13 @@ console = Console()
 
 # ---------- config -------------------------------------------------------------
 HEADLESS = True if os.getenv("HEADLESS", "False").lower() in ("true", "yes") else False
+WIDTH, HEIGHT = os.getenv("RES", "1366x900").split("x")
 STATE_FILE = Path("cookies.json")
 TAX_EMAIL = os.getenv("GSCCCA_USERNAME")
 TAX_PASSWORD = os.getenv("GSCCCA_PASSWORD")
 LOCALE = "en-GB"
 TIMEZONE = "UTC"
-VIEWPORT = {"width": 1366, "height": 900}
+VIEWPORT = {"width": int(WIDTH), "height": int(HEIGHT)}
 UA_DICT = {
     "macos": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
     "linux": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
@@ -371,6 +372,8 @@ class LienIndexScraper:
                             if urls:
                                 results_df = pd.concat([results_df, pd.DataFrame({'urls': urls})], ignore_index=True)
                             results_url = results_df
+                            if len(results_url) >= 10:
+                                break
                             
                             next_selectors = [
                                 "a[href*='liennamesselected.asp?page=']:has-text('Next Page')",
@@ -393,6 +396,9 @@ class LienIndexScraper:
                                     next_page_found = True      
                             else:
                                 next_page_found = False             
+                        
+                        if len(results_url) >= 10:
+                            break
                         
                         back_success = False
                         for i in range(next_page):
@@ -428,7 +434,7 @@ class LienIndexScraper:
                             print(f"[WARNING] Table reload timeout, but continuing...")
                             
                     except ValueError:
-                        print(f"[WARNING] Invalid Occurs value: {occurs_text}, skipping")
+                        print(f"[WARNING] Invalid Occurs value: {occurs_text}, skipping\n", traceback.format_exc())
                         continue
                         
                 except Exception as e:
@@ -458,6 +464,8 @@ class LienIndexScraper:
 
         try:
             for index, url in enumerate(urls, 1):
+                if index == 10:
+                    break
                 await self.stop_check()
                 print("-" * 50)
                 print(f"{index}. URL: ", url)
@@ -602,10 +610,24 @@ class LienIndexScraper:
                                 data["ocr_raw_text"] = text.strip()
 
                                 # extract addresses and total due
+                                from ocr.ocr_tax_extractor import process_cv2_image
                                 addr_list = self.extract_addresses_from_ocr(data["ocr_raw_text"], max_addresses=2)
+                                ocr_img = cv2.imread(str(tmp_img))
+                                ocr_json = process_cv2_image(ocr_img)
+                                print(f"OCR JSON Data: {ocr_json}")
+                                
                                 data["address"] = addr_list[1]["address"] or ""
-                                data["zipcode"] = addr_list[1]["zipcode"] or ""
                                 data["total_due"] = self.extract_total_due(img=img) or ""
+                                first_amount = (
+                                ocr_json.get("amounts", {})
+                                    .get("top_by_score", [{}])[0]
+                                    .get("numeric")
+                                )
+
+                                addresses = ocr_json.get("addresses", [])
+                                data["zipcode"] = addr_list[1]["zipcode"] or ""
+                                data["ocr_address"] = addresses or []
+                                data["ocr_total_due"] = str(first_amount)
 
                             except Exception as e:
                                 print(f"[ERROR] OCR extraction failed: {e}")
@@ -752,8 +774,10 @@ class LienIndexScraper:
                 "direct_party_debtor": "Direct Party (Debtor)",
                 "reverse_party_claimant": "Reverse Party (Claimant)",
                 "address": "Address",
+                "ocr_address": "OCR Address",
                 "zipcode": "Zipcode",
                 "total_due": "Total Due",
+                "ocr_total_due": "OCR Total Due",
                 "instrument": "Instrument",
                 "date_filed": "Date Filed",
                 "book": "Book",
@@ -810,6 +834,7 @@ class LienIndexScraper:
             )
 
             print("Starting Lien Index Scraper...")
+            print(f"Screen Resolution set to --> {WIDTH}x{HEIGHT}")
             context = await self.browser.new_context(
                 storage_state=STATE_FILE if STATE_FILE.exists() else None,
                 user_agent=UA,
@@ -850,10 +875,6 @@ class LienIndexScraper:
                 
             # Extract all search result URLs
             await self.get_search_results()
-            
-            # await self.page.goto("https://search.gsccca.org/Lien/lienfinal.asp?Type=0&County=64&Book=++184&Page=+214&Key=24675067"
-            #                      , wait_until="domcontentloaded", timeout=30000)
-            # abc = await self.parse_lien_data()
             
             # Process all result URLs
             await self.process_result_urls()
