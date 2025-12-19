@@ -464,8 +464,8 @@ class LienIndexScraper:
 
         try:
             for index, url in enumerate(urls, 1):
-                if index == 10:
-                    break
+                # if index == 10:
+                #     break
                 await self.stop_check()
                 print("-" * 50)
                 print(f"{index}. URL: ", url)
