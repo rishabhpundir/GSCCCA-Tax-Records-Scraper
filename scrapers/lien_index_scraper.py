@@ -372,7 +372,7 @@ class LienIndexScraper:
                             if urls:
                                 results_df = pd.concat([results_df, pd.DataFrame({'urls': urls})], ignore_index=True)
                             results_url = results_df
-                            # if len(results_url) >= 10:
+                            # if len(results_url) >= 20:
                             #     break
                             
                             next_selectors = [
@@ -397,7 +397,7 @@ class LienIndexScraper:
                             else:
                                 next_page_found = False             
                         
-                        # if len(results_url) >= 10:
+                        # if len(results_url) >= 20:
                         #     break
                         
                         back_success = False
@@ -464,7 +464,7 @@ class LienIndexScraper:
 
         try:
             for index, url in enumerate(urls, 1):
-                # if index == 10:
+                # if index == 20:
                 #     break
                 await self.stop_check()
                 print("-" * 50)

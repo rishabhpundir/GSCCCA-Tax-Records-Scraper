@@ -15,7 +15,7 @@ os.environ["DISABLE_MODEL_SOURCE_CHECK"] = "True"
 import re
 import json
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple, Optional
 
 import cv2
 import difflib
@@ -44,6 +44,11 @@ MONEY_RE = re.compile(r"\$\s*[\d,]+(?:\.\d{1,2})?")
 ZIP_RE = re.compile(r"\b\d{5}(?:-\d{4})?\b")
 US_STATE_ABBRS = ["GA", "FL"]
 
+ROI_TESS_PSMS = (6, 11, 12)
+TOTAL_DECIMAL_RE = re.compile(r"(?is)\bTOTAL\b.{0,80}[\d,]+\.\d{2}")
+DECIMAL_RE = re.compile(r"[\d,]+\.\d{2}")
+USE_SLOW_DENOISE = False
+
 STATE_ZIP_RE = re.compile(
     rf"\b(?:{'|'.join(US_STATE_ABBRS)})\b\s*,?\s*\d{{5}}(?:-\d{{4}})?\b",
     re.IGNORECASE,
@@ -55,12 +60,164 @@ STATE_ZIP_RE = re.compile(
 def get_paddle_ocr():
     return PaddleOCR(
         lang="en",
-        use_textline_orientation=True
+        use_textline_orientation=False,
+    )
+    
+    
+# ✅ ADD these helpers BELOW preprocess_image() (and ABOVE ocr_image()/ocr_data())
+def _to_bgr(img: np.ndarray) -> np.ndarray:
+    return img if (img is not None and img.ndim == 3) else cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+
+
+def _remove_table_lines(gray: np.ndarray) -> np.ndarray:
+    """Remove horizontal/vertical ruling lines (tables) to improve OCR recall for numbers."""
+    if gray.ndim != 2:
+        gray = cv2.cvtColor(gray, cv2.COLOR_BGR2GRAY)
+
+    inv = cv2.bitwise_not(gray)
+
+    h_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (60, 1))
+    v_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (1, 60))
+
+    horiz = cv2.morphologyEx(inv, cv2.MORPH_OPEN, h_kernel, iterations=1)
+    vert = cv2.morphologyEx(inv, cv2.MORPH_OPEN, v_kernel, iterations=1)
+    lines = cv2.bitwise_or(horiz, vert)
+
+    inv_clean = cv2.bitwise_and(inv, cv2.bitwise_not(lines))
+    return cv2.bitwise_not(inv_clean)
+
+
+# ✅ ADD these helpers BELOW _remove_table_lines() (and above ensemble_ocr / process_cv2_image)
+def _table_roi(img_bgr: np.ndarray) -> np.ndarray:
+    h, w = img_bgr.shape[:2]
+    x0 = int(w * 0.38)
+    x1 = int(w * 0.98)
+    y0 = int(h * 0.18)
+    y1 = int(h * 0.62)
+    return img_bgr[y0:y1, x0:x1].copy()
+
+
+def _roi_variants(roi_bgr: np.ndarray) -> List[np.ndarray]:
+    gray = cv2.cvtColor(roi_bgr, cv2.COLOR_BGR2GRAY)
+    otsu = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]
+    inv_otsu = cv2.bitwise_not(otsu)
+    line_removed = _remove_table_lines(gray)
+    up2 = cv2.resize(gray, (0, 0), fx=2.0, fy=2.0, interpolation=cv2.INTER_CUBIC)
+    up2_otsu = cv2.threshold(up2, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]
+    up2_lr = _remove_table_lines(up2)
+    return [gray, otsu, inv_otsu, line_removed, up2_otsu, up2_lr]
+
+
+def _recover_table_text(img_bgr: np.ndarray) -> str:
+    roi = _table_roi(img_bgr)
+    out_lines: List[str] = []
+    seen = set()
+
+    # Tesseract passes on ROI only (fast)
+    for vimg in _roi_variants(roi):
+        for psm in ROI_TESS_PSMS:
+            txt = _tess_text(vimg, psm)
+            for ln in txt.splitlines():
+                s = ln.strip()
+                if not s:
+                    continue
+                # keep only potentially useful lines to avoid polluting scoring
+                if ("TOTAL" not in s.upper()) and (DECIMAL_RE.search(s) is None) and (MONEY_RE.search(s) is None):
+                    continue
+                key = re.sub(r"\s+", " ", s).strip().lower()
+                if key in seen:
+                    continue
+                seen.add(key)
+                out_lines.append(s)
+                
+    # If ROI Tesseract already recovered a TOTAL+decimal, don't pay Paddle cost
+    if TOTAL_DECIMAL_RE.search("\n".join(out_lines)) is not None:
+        return "\n".join(out_lines).strip()
+
+    # Paddle pass on ROI only (and ROI-up2) — only if needed
+    roi_up2 = cv2.resize(roi, (0, 0), fx=2.0, fy=2.0, interpolation=cv2.INTER_CUBIC)
+    for s in (_paddle_lines(roi) + _paddle_lines(roi_up2)):
+        if ("TOTAL" not in s.upper()) and (DECIMAL_RE.search(s) is None) and (MONEY_RE.search(s) is None):
+            continue
+        key = re.sub(r"\s+", " ", s).strip().lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out_lines.append(s)
+
+    return "\n".join(out_lines).strip()
+
+
+def _tess_cfg(psm: int) -> str:
+    # keep psm per pass, maximize recall, avoid dictionary "corrections"
+    return (
+        f"--oem 3 --psm {psm} "
+        f"-c preserve_interword_spaces=1 "
+        f"-c load_system_dawg=0 -c load_freq_dawg=0"
     )
 
-    
-def _sim(a: str, b: str) -> float:
-    return difflib.SequenceMatcher(None, a, b).ratio()
+
+def _tess_text(img: np.ndarray, psm: int) -> str:
+    pil_img = cv_to_pil(_to_bgr(img))
+    return pytesseract.image_to_string(pil_img, config=_tess_cfg(psm))
+
+
+def _paddle_lines(img_bgr: np.ndarray) -> List[str]:
+    """Robustly extract text lines from PaddleOCR across different output formats."""
+    ocr = get_paddle_ocr()
+    try:
+        # newer PaddleOCR prefers predict()
+        res = ocr.predict(img_bgr)
+    except Exception:
+        res = ocr.ocr(img_bgr)
+
+    lines: List[str] = []
+    if not res:
+        return lines
+
+    # Newer pipeline format: [ { rec_texts: [...], rec_scores: [...], ... } ]
+    if isinstance(res, list) and isinstance(res[0], dict):
+        texts = res[0].get("rec_texts") or []
+        for t in texts:
+            s = str(t).strip()
+            if s:
+                lines.append(s)
+        return lines
+
+    # Classic format: [[ [box, (text, conf)], ... ]]
+    payload = res[0] if (isinstance(res, list) and len(res) == 1 and isinstance(res[0], list)) else res
+    if isinstance(payload, list):
+        for item in payload:
+            if not item:
+                continue
+            if isinstance(item, (list, tuple)) and len(item) >= 2:
+                rec = item[1]
+                if isinstance(rec, (list, tuple)) and len(rec) >= 1:
+                    s = str(rec[0]).strip()
+                else:
+                    s = str(rec).strip()
+                if s:
+                    lines.append(s)
+    return lines
+
+def ensemble_ocr(
+    img_bgr: np.ndarray,
+    *,
+    preprocessed: Optional[np.ndarray] = None,
+    preprocessed_data: Optional[np.ndarray] = None,
+) -> Tuple[str, Dict[str, Any]]:
+    pre = preprocessed if preprocessed is not None else preprocess_image(img_bgr)
+    base_text = ocr_image(pre)
+    base_data_img = preprocessed_data if preprocessed_data is not None else pre
+    base_data = ocr_data(base_data_img)
+
+    # Only do expensive stuff if TOTAL+decimal is missing
+    if TOTAL_DECIMAL_RE.search(base_text) is None:
+        extra = _recover_table_text(img_bgr)
+        if extra:
+            base_text = base_text + "\n" + extra
+
+    return base_text, base_data
 
 
 def ocr_data(img: np.ndarray):
@@ -115,7 +272,7 @@ def cv_to_pil(img: np.ndarray) -> Image.Image:
     return Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
 
 
-def preprocess_image(img: np.ndarray, *, upscale: float = 2.5) -> np.ndarray:
+def preprocess_image(img: np.ndarray, *, upscale: float = 2.0) -> np.ndarray:
     if img is None:
         raise ValueError("input image is None (cv2.imread failed)")
 
@@ -128,7 +285,10 @@ def preprocess_image(img: np.ndarray, *, upscale: float = 2.5) -> np.ndarray:
     clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
     gray = clahe.apply(gray)
 
-    gray = cv2.fastNlMeansDenoising(gray, None, h=15, templateWindowSize=7, searchWindowSize=21)
+    if USE_SLOW_DENOISE:
+        gray = cv2.fastNlMeansDenoising(gray, None, h=15, templateWindowSize=7, searchWindowSize=21)
+    else:
+        gray = cv2.medianBlur(gray, 3)
 
     # Mild sharpening
     blur = cv2.GaussianBlur(gray, (0, 0), sigmaX=1.2)
@@ -144,7 +304,7 @@ def ocr_image(img: np.ndarray) -> str:
     Assumes image is already correctly oriented (vertical).
     """
     pil_img = cv_to_pil(img)
-    text = pytesseract.image_to_string(pil_img, config="--psm 6")
+    text = pytesseract.image_to_string(pil_img, config=_tess_cfg(6))
     return text
 
 
@@ -153,7 +313,7 @@ def ocr_data(img: np.ndarray) -> Dict[str, Any]:
     pil_img = cv_to_pil(img)
     return pytesseract.image_to_data(
         pil_img,
-        config="--oem 3 --psm 6",
+        config=_tess_cfg(6),
         output_type=Output.DICT,
     )
 
@@ -215,7 +375,7 @@ def extract_amounts(text: str) -> Dict[str, Any]:
         "TOTAL DUE": 12,
         "TOTAL LIEN": 10,
         "TOTAL AMOUNT": 10,
-        "TOTAL": 8,
+        "TOTAL": 10,
         "BALANCE DUE": 10,
         "BALANCE": 6,
         "PAID AMOUNT": 8,
@@ -254,6 +414,52 @@ def extract_amounts(text: str) -> Dict[str, Any]:
             candidates.append(
                 {
                     "raw": raw,
+                    "numeric": value,
+                    "line": raw_line,
+                    "score": round(score, 3),
+                }
+            )
+            
+    # ----------------- FALLBACK (no "$" >= 100 found) -----------------
+    has_big_dollar = any(
+        (c.get("numeric") is not None)
+        and (c.get("raw", "").lstrip().startswith("$"))
+        and (float(c["numeric"]) >= 100.0)
+        for c in candidates
+    )
+
+    if not has_big_dollar:
+        for line in text.splitlines():
+            raw_line = line.strip()
+            if not raw_line:
+                continue
+            upper = raw_line.upper()
+            if "TOTAL" not in upper:
+                continue
+
+            nums = []
+            for m in DECIMAL_RE.finditer(raw_line):
+                s = m.group(0)
+                try:
+                    v = float(s.replace(",", ""))
+                except ValueError:
+                    continue
+                nums.append((v, s))
+            if not nums:
+                continue
+
+            value, raw_num = max(nums, key=lambda x: x[0])
+
+            score = 0.0
+            for kw, weight in importance_keywords.items():
+                if kw in upper:
+                    score += weight
+            score += 5.0  # boost for TOTAL-without-$ recovery
+            score += value / 1000.0
+
+            candidates.append(
+                {
+                    "raw": raw_num,
                     "numeric": value,
                     "line": raw_line,
                     "score": round(score, 3),
@@ -368,13 +574,21 @@ def process_cv2_image(img: np.ndarray) -> Dict[str, Any]:
     takes an already-loaded OpenCV image.
     """
     print("Preprocessing image...")
-    preprocessed = preprocess_image(img)
-    data = ocr_data(preprocessed)
+    pre_text = preprocess_image(img, upscale=2.0)
+    pre_data = preprocess_image(img, upscale=1.5)
+    text, data = ensemble_ocr(img, preprocessed=pre_text, preprocessed_data=pre_data)
+    
+    print(f"********\n{text}\n********")
+    
     ocr_lines = data_to_lines(data)
-
-    text = ocr_image(preprocessed)
     amounts = extract_amounts(text)
-    addresses = extract_address_blocks(ocr_lines, image_width=int(preprocessed.shape[1]))
+    addresses = extract_address_blocks(ocr_lines, image_width=int(pre_text.shape[1]))
+    
+    # If lower-res word boxes missed addresses, fallback once to hi-res boxes only
+    if not addresses:
+        data_hi = ocr_data(pre_text)
+        ocr_lines_hi = data_to_lines(data_hi)
+        addresses = extract_address_blocks(ocr_lines_hi, image_width=int(pre_text.shape[1]))
 
     return {
         "amounts": amounts,
