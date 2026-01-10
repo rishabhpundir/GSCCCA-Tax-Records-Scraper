@@ -54,6 +54,36 @@ STATE_ZIP_RE = re.compile(
     re.IGNORECASE,
 )
     
+# =========================
+# ADD (near your other regex/constants, anywhere above extract_address_blocks)
+# =========================
+ADDR_SUFFIXES = (
+    "ST", "AVE", "RD", "DR", "CT", "LN", "BLVD", "HWY", "WAY", "PL", "PKWY", "CIR",
+    "TER", "TRL", "SQ", "PT", "RUN", "CV", "CVS", "BND", "XING", "HOLW", "HL", "HLS",
+    "PARK", "VW", "VIEW", "PASS", "WALK", "TRCE", "TRAK", "PATH", "PIKE", "RTE",
+    "STE", "SUITE", "UNIT", "APT", "FL"
+)
+
+# Start anchor for an address block (either PO BOX or a street number + street suffix)
+ADDR_START_RE = re.compile(
+    rf"(?ix)\b("
+    rf"P\.?\s*O\.?\s*BOX\s*\d+"
+    rf"|"
+    rf"\d{{1,6}}\s+[A-Z0-9][A-Z0-9\s\.]{{1,80}}?\b(?:{'|'.join(ADDR_SUFFIXES)})\b\.?"
+    rf")"
+)
+
+ADDR_GARBAGE_RE = re.compile(
+    r"(?ix)\b("
+    r"levy|"
+    r"fifa|"
+    r"fi\.?\s*fa\.?|"
+    r"ley|"
+    r"py|"
+    r"tfa"
+    r")\b"
+)
+
 
 #----------------- OCR HELPERS ----------------- #
 @lru_cache(maxsize=1)
@@ -63,6 +93,40 @@ def get_paddle_ocr():
         use_textline_orientation=False,
     )
     
+
+def _trim_to_address_span(cleaned: str, state_zip_re: re.Pattern) -> str:
+    """
+    Keep only the address-like portion ending at STATE+ZIP by trimming leading junk.
+    Example:
+      'PaymentstoDate ... 86 FOLIAGE CT Levy ... DALLAS GA 30132'
+        -> '86 FOLIAGE CT, DALLAS GA 30132'
+    """
+    m = state_zip_re.search(cleaned)
+    if not m:
+        return cleaned.strip(" ,")
+
+    s = cleaned[: m.end()]  # already your intended termination point
+
+    # Prefer last PO BOX / street-address start within the truncated span
+    last = None
+    for mm in ADDR_START_RE.finditer(s):
+        last = mm
+    if last:
+        s = s[last.start() :]
+    else:
+        # fallback: last street-number-like token before STATE+ZIP
+        prefix = s[: m.start()]
+        nums = list(re.finditer(r"\b\d{1,6}\b", prefix))
+        if nums:
+            s = s[nums[-1].start() :]
+
+    # remove embedded OCR garbage tokens like "Levy", "Fi.Fa.", "PY", "tfa" etc.
+    s = ADDR_GARBAGE_RE.sub(" ", s)
+    s = re.sub(r"\s{2,}", " ", s).strip()
+    s = re.sub(r"\s*,\s*", ", ", s)
+    s = re.sub(r"(, ){2,}", ", ", s).strip(" ,")
+    return s
+
     
 # ✅ ADD these helpers BELOW preprocess_image() (and ABOVE ocr_image()/ocr_data())
 def _to_bgr(img: np.ndarray) -> np.ndarray:
@@ -555,6 +619,11 @@ def extract_address_blocks(lines: List[Dict[str, Any]], image_width: int) -> Lis
         cleaned = re.sub(r"\s{2,}", " ", cleaned).strip()
         cleaned = re.sub(r"\s*,\s*", ", ", cleaned)
         cleaned = re.sub(r"(, ){2,}", ", ", cleaned).strip(" ,")
+        
+        # 7) trim leading garbage by anchoring to an address-start before STATE+ZIP
+        cleaned = _trim_to_address_span(cleaned, state_zip_re)
+        if len(cleaned) < 10:
+            continue
 
         # ---------------- DEDUPE ----------------
         norm = re.sub(r"\s+", " ", cleaned).strip().lower()

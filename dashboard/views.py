@@ -411,3 +411,32 @@ def download_all_realestate_excel(request):
     except Exception as e:
         logger.error(f"Error downloading all real estate Excel: {e}")
         return JsonResponse({'error': str(e)}, status=500)
+    
+    
+@csrf_exempt
+def resume_scraper(request):
+    """Resume lien scraper from last saved CSV+state (status-based)."""
+    if request.method != 'POST':
+        return JsonResponse({'error': 'Only POST method allowed'}, status=405)
+
+    scraper_type = request.POST.get('scraper_type', 'lien')
+    if scraper_type != 'lien':
+        return JsonResponse({'error': 'Resume currently supported only for lien scraper'}, status=400)
+
+    try:
+        stop_scraper_flag['lien'] = False
+
+        thread = threading.Thread(
+            target=run_lien_scraper,
+            kwargs={"params": {"scraper_type": "lien", "resume": True}},
+            daemon=True
+        )
+        thread.start()
+
+        return JsonResponse({'status': 'Lien scraper resume started'}, status=200)
+
+    except Exception as e:
+        logging.exception("Error resuming scraper")
+        return JsonResponse({'error': str(e)}, status=500)
+    
+    

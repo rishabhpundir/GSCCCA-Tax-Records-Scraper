@@ -99,8 +99,8 @@ def run_lien_scraper(params: dict):
                     traceback.format_exc()
                     
             print(f"Successfully saved {saved_count} out of {len(df)} lien records to database")
-        else:
-            print("No lien Excel file found")
+        # else:
+        #     print("No lien Excel file found")
     except Exception as e:
         print(f"Error running lien scraper: {e}")
         traceback.format_exc()

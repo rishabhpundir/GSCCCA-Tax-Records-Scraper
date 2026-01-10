@@ -7,6 +7,7 @@ urlpatterns = [
     path('start-scraper/', views.start_scraper, name='start_scraper'),
     path('stop-scraper/', views.stop_scraper, name='stop_scraper'),
     path('get-latest-data/', views.get_latest_data, name='get_latest_data'),
+    path('resume-scraper/', views.resume_scraper, name='resume_scraper'),
     
     # New Excel download URLs
     path('download-lien-excel/', views.download_lien_excel, name='download_lien_excel'),

@@ -20,6 +20,7 @@ from dotenv import load_dotenv
 from PIL import Image, ImageOps
 from rich.console import Console
 import playwright.async_api as pw
+from openpyxl import Workbook, load_workbook
 
 from dashboard.utils.state import stop_scraper_flag 
 
@@ -29,7 +30,7 @@ console = Console()
 
 # ---------- config -------------------------------------------------------------
 HEADLESS = True if os.getenv("HEADLESS", "False").lower() in ("true", "yes") else False
-WIDTH, HEIGHT = os.getenv("RES", "1366x900").split("x")
+WIDTH, HEIGHT = os.getenv("RES", "1920x1080").split("x")
 STATE_FILE = Path("cookies.json")
 TAX_EMAIL = os.getenv("GSCCCA_USERNAME")
 TAX_PASSWORD = os.getenv("GSCCCA_PASSWORD")
@@ -80,11 +81,13 @@ class LienIndexScraper:
             self.name_search_url = "https://search.gsccca.org/Lien/namesearch.asp"
             self.results = []
             
+            self.excel_path = ""
             script_dir = Path(__file__).parent.absolute()
             self.county_folder_path = ""
             self.base_output_dir = os.path.join(script_dir.parent, "output") 
             self.lien_output_dir = os.path.join(self.base_output_dir, "lien")
             os.makedirs(self.lien_output_dir, exist_ok=True)
+            self.resume_state_path = os.path.join(self.lien_output_dir, "lien_resume_state.json")
             
             console.print(f"[green]Lien Output directory --> {self.lien_output_dir}[/green]")
         except Exception as e:
@@ -108,7 +111,106 @@ class LienIndexScraper:
         raw = m.group(1)
         raw = raw.replace(',', '')
         return str(raw)
-        
+    
+    
+    def _save_resume_state(self):
+        state = {
+            "csv_path": self.csv_path,
+            "county_folder_path": self.county_folder_path,
+        }
+        os.makedirs(os.path.dirname(self.resume_state_path), exist_ok=True)
+        with open(self.resume_state_path, "w", encoding="utf-8") as f:
+            json.dump(state, f, indent=2)
+
+
+    def _load_resume_state(self):
+        if not os.path.exists(self.resume_state_path):
+            return None
+        with open(self.resume_state_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+
+
+    async def _get_session_excel_path(self) -> str:
+        if getattr(self, "excel_path", ""):
+            return self.excel_path
+
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+
+        search_name = re.sub(r'[^a-zA-Z0-9]', '', self.form_data.get("search_name", "")).replace(" ", "_")
+        if not search_name:
+            search_name = re.sub(r'[^a-zA-Z0-9]', '', getattr(self, "county_folder", "")).replace(" ", "_") or "resume"
+
+        base_dir = self.county_folder_path or self.lien_output_dir
+        self.excel_path = os.path.join(base_dir, f"lien_data_{search_name}_{ts}.xlsx")
+        return self.excel_path
+
+
+    def _excel_safe(self, v):
+        if v is None:
+            return ""
+        if isinstance(v, np.generic):  # numpy scalar -> python scalar
+            return v.item()
+        if isinstance(v, (list, tuple, set)):
+            return " | ".join(str(x) for x in v)
+        if isinstance(v, dict):
+            return json.dumps(v, ensure_ascii=False)
+        return v
+
+
+    async def _append_result_to_excel(self, data: dict):
+        """Append ONE row to an Excel file, safely (atomic write)."""
+        excel_path = await self._get_session_excel_path()
+
+        columns = {
+            "county": "County",
+            "direct_party_debtor": "Direct Party (Debtor)",
+            "reverse_party_claimant": "Reverse Party (Claimant)",
+            "address": "Address",
+            "ocr_address": "OCR Address",
+            "zipcode": "Zipcode",
+            "total_due": "Total Due",
+            "ocr_total_due": "OCR Total Due",
+            "instrument": "Instrument",
+            "date_filed": "Date Filed",
+            "book": "Book",
+            "page": "Page",
+            "description": "Description",
+            "amount": "Amount",
+            "pdf_document_url": "PDF Document URL",
+            "pdf_filename": "View PDF",
+        }
+
+        headers = list(columns.values())
+
+        # build row in the same display order as headers
+        row_vals = []
+        for data_col, xl_col in columns.items():
+            if xl_col == "View PDF":
+                pdf_name = data.get("pdf_filename", "")
+                if isinstance(pdf_name, str) and pdf_name.strip():
+                    view_path = os.path.join(self.documents_dir, pdf_name).replace(os.sep, "/")
+                    row_vals.append(f'=HYPERLINK("file:///{view_path}", "{pdf_name}")')
+                else:
+                    row_vals.append("")
+            else:
+                row_vals.append(self._excel_safe(data.get(data_col, "")))
+
+
+        if os.path.exists(excel_path):
+            wb = load_workbook(excel_path)
+            ws = wb.active
+        else:
+            wb = Workbook()
+            ws = wb.active
+            ws.append(headers)
+
+        ws.append(row_vals)
+
+        # atomic save to avoid corruption if crash during save
+        tmp_path = excel_path + ".tmp"
+        wb.save(tmp_path)
+        os.replace(tmp_path, excel_path)
+
         
     async def stop_check(self):
         """ Global stop flag to immediately exit scraping if invoked by user. """
@@ -291,7 +393,7 @@ class LienIndexScraper:
             print(f"Found {total_rows} rows to process...")
 
             # to collect all results URLs
-            results_df = pd.DataFrame(columns=['urls'])
+            results_df = pd.DataFrame(columns=['url', 'status'])
             
             for row_index in range(total_rows):
                 await self.stop_check()
@@ -370,10 +472,10 @@ class LienIndexScraper:
 
                             # append to your DataFrame
                             if urls:
-                                results_df = pd.concat([results_df, pd.DataFrame({'urls': urls})], ignore_index=True)
+                                results_df = pd.concat([results_df, pd.DataFrame({'url': urls, 'status': ''})], ignore_index=True)
                             results_url = results_df
-                            # if len(results_url) >= 20:
-                            #     break
+                            if len(results_url) >= 20:
+                                break
                             
                             next_selectors = [
                                 "a[href*='liennamesselected.asp?page=']:has-text('Next Page')",
@@ -397,8 +499,8 @@ class LienIndexScraper:
                             else:
                                 next_page_found = False             
                         
-                        # if len(results_url) >= 20:
-                        #     break
+                        if len(results_url) >= 20:
+                            break
                         
                         back_success = False
                         for i in range(next_page):
@@ -441,10 +543,11 @@ class LienIndexScraper:
                     print(f"[ERROR] Failed to process row {row_index + 1}: {e}\n{traceback.format_exc()}")
 
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            results_url = results_df[~results_df['urls'].str.contains('maxrows', case=False, na=False)]
+            results_url = results_df[~results_df['url'].str.contains('maxrows', case=False, na=False)]
             search_name = re.sub(r'[^a-zA-Z0-9]', '', self.form_data.get("search_name", "")).replace(" ", "_")
             self.csv_path = os.path.join(self.county_folder_path, f"{search_name}_urls_list_{timestamp}.csv")
             results_url.to_csv(self.csv_path, index=False)
+            self._save_resume_state()
             print(f"Success -> Search results' URLs saved to CSV at {self.csv_path}")
 
         except Exception as e:
@@ -459,20 +562,25 @@ class LienIndexScraper:
             console.print(f"[red][ERROR] No URLs found at: {self.csv_path}[/red]")
             return
 
-        urls = result_urls['urls'].tolist()
-        print(f"Initiating lien data extraction...\nTotal URLs count: {len(urls)}")
+        print(f"Initiating lien data extraction...\nTotal URLs count: {len(result_urls)}")
 
         try:
-            for index, url in enumerate(urls, 1):
-                # if index == 20:
-                #     break
+            for index, row in result_urls.iterrows():
+                if str(row.get("status", "")).strip().lower() == "done":
+                    continue
+
+                if index == 20:
+                    break
+                
                 await self.stop_check()
                 print("-" * 50)
-                print(f"{index}. URL: ", url)
+                print(f"{index + 1}. URL: ", row['url'])
                 
-                await self.page.goto(url, wait_until="domcontentloaded", timeout=60000)
+                await self.page.goto(row['url'], wait_until="domcontentloaded", timeout=60000)
                 if await self.page.locator("body:has-text('CANCELLATION')").count() > 0:
-                    print(f"⚠️ 'CANCELLATION' found on page. Skipping: {url}")
+                    print(f"⚠️ 'CANCELLATION' found on page. Skipping: {row['url']}")
+                    result_urls.at[index, "status"] = "Done"
+                    result_urls.to_csv(self.csv_path, index=False)
                     continue
                 await self.check_and_handle_announcement()
                 await self.page.wait_for_timeout(self.time_sleep())
@@ -481,9 +589,14 @@ class LienIndexScraper:
                 data = await self.parse_lien_data()
                 if data:
                     self.results.append(data)
+                    await self._append_result_to_excel(data)
                     console.print(f"[cyan]Saved data for --> {data.get('direct_party_debtor', 'Unknown')}[/cyan]")
                 else:
                     print(f"No data found")
+                    
+                # mark row as done in CSV
+                result_urls.at[index, "status"] = "Done"
+                result_urls.to_csv(self.csv_path, index=False)
 
         except Exception as e:
             console.print(f"[red]Error in process_result_urls: {e}[/red]")
@@ -762,6 +875,20 @@ class LienIndexScraper:
 
     def save_to_excel(self, filename="lien_data.xlsx"):
         """ Save scraped results to Excel with clickable PDF links. """
+        
+        if getattr(self, "excel_path", "") and os.path.exists(self.excel_path):
+            print("-" * 50)
+            console.print(f"[bold green]Saved records incrementally to --> {self.excel_path}[/bold green]")
+            print("-" * 50)
+            
+            # if getattr(self, "csv_path", "") and os.path.exists(self.csv_path):
+            #     os.remove(self.csv_path)
+
+            if getattr(self, "resume_state_path", "") and os.path.exists(self.resume_state_path):
+                os.remove(self.resume_state_path)
+
+            return
+
 
         try:
             if not hasattr(self, "results") or not self.results:
@@ -813,7 +940,11 @@ class LienIndexScraper:
             print("-" * 50)
             console.print(f"[bold green]Saved {len(df)} records to --> {final_path}[/bold green]")
             print("-" * 50)
-            os.remove(self.csv_path)
+            # os.remove(self.csv_path)
+            
+            if os.path.exists(self.resume_state_path):
+                os.remove(self.resume_state_path)
+
         except Exception as e:
             console.print(f"[red]Error in save_to_excel: {e}[/red]")
 
@@ -869,6 +1000,29 @@ class LienIndexScraper:
                 console.print("[yellow]Session invalid... logging in again...[/yellow]")
                 await self.login()
                 await self.page.wait_for_timeout(self.time_sleep())
+
+            # ✅ Resume mode: skip search, continue from CSV (status != Done)
+            if str(form_data.get("resume", "")).lower() in ("1", "true", "yes"):
+                state = self._load_resume_state()
+                if not state:
+                    console.print(f"[red][ERROR] Resume state not found: {self.resume_state_path}[/red]")
+                    return
+
+                self.csv_path = state.get("csv_path")
+                self.county_folder_path = state.get("county_folder_path")
+
+                if not self.csv_path or not os.path.exists(self.csv_path):
+                    console.print(f"[red][ERROR] Resume CSV not found: {self.csv_path}[/red]")
+                    return
+
+                if self.county_folder_path:
+                    os.makedirs(self.county_folder_path, exist_ok=True)
+                    self.documents_dir = os.path.join(self.county_folder_path, "documents")
+                    os.makedirs(self.documents_dir, exist_ok=True)
+
+                await self.process_result_urls()
+                self.save_to_excel()
+                return
 
             # Search using form data
             await self.start_search()

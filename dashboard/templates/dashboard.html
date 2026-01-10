@@ -178,6 +178,15 @@
           </div>
         </button>
       </div>
+
+      <div class="flex flex-col md:flex-row justify-center gap-4 mt-6">
+        <button onclick="resumeScraper('lien')" class="scraper-btn group">
+          <div class="bg-gradient-to-br from-yellow-400 to-yellow-500 px-6 py-3 rounded-xl text-md font-semibold text-white flex items-center justify-center">
+            <i class="fa fa-play-circle mr-3 transform group-hover:scale-110 transition-transform"></i>
+            <span>Resume Scraping</span>
+          </div>
+        </button>
+      </div>
       
       <div class="mt-6 flex justify-center">
         <button onclick="loadInitialData()" class="text-sm text-gray-400 hover:text-white transition-colors flex items-center">
@@ -978,6 +987,27 @@
   </div>
   <script src="https://cdn.jsdelivr.net/particles.js/2.0.0/particles.min.js"></script>
   <script>
+
+    function resumeScraper(scraperType) {
+        const formData = new FormData();
+        formData.append("scraper_type", scraperType);
+
+        fetch("/resume-scraper/", {
+            method: "POST",
+            headers: {
+                "X-CSRFToken": getCookie("csrftoken"),
+            },
+            body: formData
+        })
+        .then(res => res.json())
+        .then(data => {
+            alert(data.status || data.error || "Resume request sent.");
+        })
+        .catch(err => {
+            alert("Error resuming scraper: " + err);
+        });
+    }
+
     // Initialize particles background
     particlesJS('particles-js', {
       particles: {
