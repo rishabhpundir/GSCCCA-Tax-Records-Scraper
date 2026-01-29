@@ -47,6 +47,7 @@ US_STATE_ABBRS = ["GA", "FL"]
 ROI_TESS_PSMS = (6, 11, 12)
 TOTAL_DECIMAL_RE = re.compile(r"(?is)\bTOTAL\b.{0,80}[\d,]+\.\d{2}")
 DECIMAL_RE = re.compile(r"[\d,]+\.\d{2}")
+DESCRIPTION_RE = re.compile(r"(?i)\bDESCRIPTION\b")
 USE_SLOW_DENOISE = False
 
 STATE_ZIP_RE = re.compile(
@@ -172,10 +173,18 @@ def _roi_variants(roi_bgr: np.ndarray) -> List[np.ndarray]:
     return [gray, otsu, inv_otsu, line_removed, up2_otsu, up2_lr]
 
 
-def _recover_table_text(img_bgr: np.ndarray) -> str:
+def _recover_table_text(img_bgr: np.ndarray, *, want_description: bool = False) -> str:
     roi = _table_roi(img_bgr)
     out_lines: List[str] = []
     seen = set()
+
+    def _keep_line(s: str) -> bool:
+        return (
+            ("TOTAL" in s.upper())
+            or (DECIMAL_RE.search(s) is not None)
+            or (MONEY_RE.search(s) is not None)
+            or (want_description and (DESCRIPTION_RE.search(s) is not None))
+        )
 
     # Tesseract passes on ROI only (fast)
     for vimg in _roi_variants(roi):
@@ -185,23 +194,24 @@ def _recover_table_text(img_bgr: np.ndarray) -> str:
                 s = ln.strip()
                 if not s:
                     continue
-                # keep only potentially useful lines to avoid polluting scoring
-                if ("TOTAL" not in s.upper()) and (DECIMAL_RE.search(s) is None) and (MONEY_RE.search(s) is None):
+                if not _keep_line(s):
                     continue
                 key = re.sub(r"\s+", " ", s).strip().lower()
                 if key in seen:
                     continue
                 seen.add(key)
                 out_lines.append(s)
-                
-    # If ROI Tesseract already recovered a TOTAL+decimal, don't pay Paddle cost
-    if TOTAL_DECIMAL_RE.search("\n".join(out_lines)) is not None:
-        return "\n".join(out_lines).strip()
+
+    joined = "\n".join(out_lines)
+
+    # If ROI Tesseract already recovered what we need, don't pay Paddle cost
+    if (TOTAL_DECIMAL_RE.search(joined) is not None) or (want_description and (DESCRIPTION_RE.search(joined) is not None)):
+        return joined.strip()
 
     # Paddle pass on ROI only (and ROI-up2) — only if needed
     roi_up2 = cv2.resize(roi, (0, 0), fx=2.0, fy=2.0, interpolation=cv2.INTER_CUBIC)
     for s in (_paddle_lines(roi) + _paddle_lines(roi_up2)):
-        if ("TOTAL" not in s.upper()) and (DECIMAL_RE.search(s) is None) and (MONEY_RE.search(s) is None):
+        if not _keep_line(s):
             continue
         key = re.sub(r"\s+", " ", s).strip().lower()
         if key in seen:
@@ -275,9 +285,12 @@ def ensemble_ocr(
     base_data_img = preprocessed_data if preprocessed_data is not None else pre
     base_data = ocr_data(base_data_img)
 
-    # Only do expensive stuff if TOTAL+decimal is missing
-    if TOTAL_DECIMAL_RE.search(base_text) is None:
-        extra = _recover_table_text(img_bgr)
+    # Only do expensive stuff if TOTAL+decimal or DESCRIPTION is missing
+    missing_total = (TOTAL_DECIMAL_RE.search(base_text) is None)
+    missing_desc = (DESCRIPTION_RE.search(base_text) is None)
+
+    if missing_total or missing_desc:
+        extra = _recover_table_text(img_bgr, want_description=missing_desc)
         if extra:
             base_text = base_text + "\n" + extra
 
@@ -542,6 +555,61 @@ def extract_amounts(text: str) -> Dict[str, Any]:
     }
 
 
+def extract_description(text: str) -> Optional[str]:
+    lines = [l.strip() for l in text.splitlines() if l.strip()]
+
+    REJECT_WORDS = {
+        "fee", "fees", "total", "tax", "taxes",
+        "lien", "interest", "penalty", "cost"
+    }
+
+    def clean_description(val: str) -> Optional[str]:
+        if not val:
+            return None
+
+        # Cut trailing OCR junk after wide gaps
+        val = re.split(r"\s{3,}", val)[0]
+
+        # Remove non-alphanumeric chars except spaces
+        val = re.sub(r"[^A-Za-z0-9 ]+", " ", val)
+
+        # Normalize spaces
+        val = re.sub(r"\s+", " ", val).strip()
+
+        # Must contain at least one letter
+        if not re.search(r"[A-Za-z]", val):
+            return None
+
+        # Reject pure numbers / decimals / money
+        if re.fullmatch(r"\$?\d+(\.\d+)?", val):
+            return None
+
+        # Reject unwanted domain words
+        words = {w.lower() for w in val.split()}
+        if words & REJECT_WORDS:
+            return None
+
+        return val
+
+    for line in lines:
+        if re.search(r"(?i)\bdescription\b", line):
+            # Remove everything up to and including "description"
+            remainder = re.sub(
+                r"(?i).*?\bdescription\b",
+                "",
+                line
+            )
+
+            # Remove common OCR separators after Description
+            remainder = re.sub(r"^[\s:=\-|§«=]+", "", remainder).strip()
+
+            cleaned = clean_description(remainder)
+            if cleaned:
+                return cleaned
+
+    return None
+
+
 def extract_address_blocks(lines: List[Dict[str, Any]], image_width: int) -> List[str]:
     # Build state+ZIP regex from current US_STATE_ABBRS (keeps this modular)
     state_zip_re = re.compile(
@@ -651,6 +719,7 @@ def process_cv2_image(img: np.ndarray) -> Dict[str, Any]:
     
     ocr_lines = data_to_lines(data)
     amounts = extract_amounts(text)
+    description = extract_description(text)
     addresses = extract_address_blocks(ocr_lines, image_width=int(pre_text.shape[1]))
     
     # If lower-res word boxes missed addresses, fallback once to hi-res boxes only
@@ -662,6 +731,7 @@ def process_cv2_image(img: np.ndarray) -> Dict[str, Any]:
     return {
         "amounts": amounts,
         "addresses": addresses,
+        "description": description,
     }
 
 

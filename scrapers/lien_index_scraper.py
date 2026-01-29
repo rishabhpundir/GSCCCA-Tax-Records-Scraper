@@ -165,17 +165,14 @@ class LienIndexScraper:
             "county": "County",
             "direct_party_debtor": "Direct Party (Debtor)",
             "reverse_party_claimant": "Reverse Party (Claimant)",
-            "address": "Address",
-            "ocr_address": "OCR Address",
+            "ocr_address": "Address",
             "zipcode": "Zipcode",
-            "total_due": "Total Due",
-            "ocr_total_due": "OCR Total Due",
+            "ocr_total_due": "Total Due",
             "instrument": "Instrument",
             "date_filed": "Date Filed",
             "book": "Book",
             "page": "Page",
-            "description": "Description",
-            "amount": "Amount",
+            "ocr_description": "Description",
             "pdf_document_url": "PDF Document URL",
             "pdf_filename": "View PDF",
         }
@@ -210,6 +207,7 @@ class LienIndexScraper:
         tmp_path = excel_path + ".tmp"
         wb.save(tmp_path)
         os.replace(tmp_path, excel_path)
+        console.print(f"[bold green]Saved record to --> {excel_path}[/bold green]")
 
         
     async def stop_check(self):
@@ -731,6 +729,7 @@ class LienIndexScraper:
                                 
                                 data["address"] = addr_list[1]["address"] or ""
                                 data["total_due"] = self.extract_total_due(img=img) or ""
+                                data["ocr_description"] = ocr_json.get("description", "")
                                 first_amount = (
                                 ocr_json.get("amounts", {})
                                     .get("top_by_score", [{}])[0]
@@ -900,16 +899,14 @@ class LienIndexScraper:
                 "county": "County",
                 "direct_party_debtor": "Direct Party (Debtor)",
                 "reverse_party_claimant": "Reverse Party (Claimant)",
-                "address": "Address",
-                "ocr_address": "OCR Address",
+                "ocr_address": "Address",
                 "zipcode": "Zipcode",
-                "total_due": "Total Due",
-                "ocr_total_due": "OCR Total Due",
+                "ocr_total_due": "Total Due",
                 "instrument": "Instrument",
                 "date_filed": "Date Filed",
                 "book": "Book",
                 "page": "Page",
-                "description": "Description",
+                "ocr_description": "Description",
                 "amount": "Amount",
                 "pdf_document_url": "PDF Document URL",
                 "pdf_filename": "View PDF",
