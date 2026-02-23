@@ -220,3 +220,4 @@ output/
 .DS_Store
 input/
 docs/
+/ocr/*.pdf

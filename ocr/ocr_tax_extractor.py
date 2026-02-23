@@ -562,6 +562,15 @@ def extract_description(text: str) -> Optional[str]:
         "fee", "fees", "total", "tax", "taxes",
         "lien", "interest", "penalty", "cost"
     }
+    WORDS_TO_CHECK = ("MEFF", "INVENT", "BOAT", "INVENTI", "EQUIPMENT")
+
+    # Compute once for the whole OCR text
+    full_text_lower = text.lower()
+    matched_words = []
+    for w in WORDS_TO_CHECK:
+        if w.lower() in full_text_lower:
+            matched_words.append(w)
+    matched_words = list(dict.fromkeys(matched_words))  # de-dupe, preserve order
 
     def clean_description(val: str) -> Optional[str]:
         if not val:
@@ -591,23 +600,30 @@ def extract_description(text: str) -> Optional[str]:
 
         return val
 
-    for line in lines:
-        if re.search(r"(?i)\bdescription\b", line):
+    for i, line in enumerate(lines):
+        if re.search(r"(?i)\b(property\s+description|property\s+location|description)\b", line):
             # Remove everything up to and including "description"
-            remainder = re.sub(
-                r"(?i).*?\bdescription\b",
-                "",
-                line
-            )
+            remainder = re.sub(r"(?i).*?\b(property\s+description|property\s+location|description)\b", "", line)
 
             # Remove common OCR separators after Description
             remainder = re.sub(r"^[\s:=\-|§«=]+", "", remainder).strip()
+            if not remainder and i + 1 < len(lines):
+                remainder = lines[i + 1].strip()
 
             cleaned = clean_description(remainder)
-            if cleaned:
-                return cleaned
 
-    return None
+            # If we got a clean description, append matched words (if any)
+            if cleaned:
+                return f"{cleaned} {' '.join(matched_words)}".strip() if matched_words else cleaned
+
+            # If description line is unusable but matched words exist, return them
+            if matched_words:
+                return " ".join(matched_words)
+
+            return None
+
+    # No Description line found; optionally still return matched words if present
+    return " ".join(matched_words) if matched_words else None
 
 
 def extract_address_blocks(lines: List[Dict[str, Any]], image_width: int) -> List[str]:

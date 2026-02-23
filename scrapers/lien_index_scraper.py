@@ -472,8 +472,8 @@ class LienIndexScraper:
                             if urls:
                                 results_df = pd.concat([results_df, pd.DataFrame({'url': urls, 'status': ''})], ignore_index=True)
                             results_url = results_df
-                            # if len(results_url) >= 20:
-                            #     break
+                            if len(results_url) >= 20:
+                                break
                             
                             next_selectors = [
                                 "a[href*='liennamesselected.asp?page=']:has-text('Next Page')",
@@ -497,8 +497,8 @@ class LienIndexScraper:
                             else:
                                 next_page_found = False             
                         
-                        # if len(results_url) >= 20:
-                        #     break
+                        if len(results_url) >= 20:
+                            break
                         
                         back_success = False
                         for i in range(next_page):
@@ -567,8 +567,8 @@ class LienIndexScraper:
                 if str(row.get("status", "")).strip().lower() == "done":
                     continue
 
-                # if index == 20:
-                #     break
+                if index == 20:
+                    break
                 
                 await self.stop_check()
                 print("-" * 50)
@@ -725,9 +725,13 @@ class LienIndexScraper:
                                 addr_list = self.extract_addresses_from_ocr(data["ocr_raw_text"], max_addresses=2)
                                 ocr_img = cv2.imread(str(tmp_img))
                                 ocr_json = process_cv2_image(ocr_img)
-                                print(f"OCR JSON Data: {ocr_json}")
+                                print(f"OCR JSON Data: {ocr_json}\nAddresses: {addr_list}")
                                 
-                                data["address"] = addr_list[1]["address"] or ""
+                                addr_1 = " | ".join(
+                                    addr["address"].strip()
+                                    for addr in addr_list
+                                    if isinstance(addr.get("address"), str) and addr["address"].strip()
+                                )
                                 data["total_due"] = self.extract_total_due(img=img) or ""
                                 data["ocr_description"] = ocr_json.get("description", "")
                                 first_amount = (
@@ -737,8 +741,9 @@ class LienIndexScraper:
                                 )
 
                                 addresses = ocr_json.get("addresses", [])
+                                print("OCR Addresses: ", addresses)
                                 data["zipcode"] = addr_list[1]["zipcode"] or ""
-                                data["ocr_address"] = addresses or []
+                                data["ocr_address"] = addr_1 + " | " + ((" ").join(addresses)).strip()
                                 data["ocr_total_due"] = str(first_amount)
 
                             except Exception as e:
