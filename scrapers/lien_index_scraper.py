@@ -472,8 +472,8 @@ class LienIndexScraper:
                             if urls:
                                 results_df = pd.concat([results_df, pd.DataFrame({'url': urls, 'status': ''})], ignore_index=True)
                             results_url = results_df
-                            if len(results_url) >= 20:
-                                break
+                            # if len(results_url) >= 20:
+                            #     break
                             
                             next_selectors = [
                                 "a[href*='liennamesselected.asp?page=']:has-text('Next Page')",
@@ -497,8 +497,8 @@ class LienIndexScraper:
                             else:
                                 next_page_found = False             
                         
-                        if len(results_url) >= 20:
-                            break
+                        # if len(results_url) >= 20:
+                        #     break
                         
                         back_success = False
                         for i in range(next_page):
@@ -567,8 +567,8 @@ class LienIndexScraper:
                 if str(row.get("status", "")).strip().lower() == "done":
                     continue
 
-                if index == 20:
-                    break
+                # if index == 20:
+                #     break
                 
                 await self.stop_check()
                 print("-" * 50)
