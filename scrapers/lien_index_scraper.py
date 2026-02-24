@@ -743,7 +743,8 @@ class LienIndexScraper:
                                 addresses = ocr_json.get("addresses", [])
                                 print("OCR Addresses: ", addresses)
                                 data["zipcode"] = addr_list[1]["zipcode"] or ""
-                                data["ocr_address"] = addr_1 + " | " + ((" ").join(addresses)).strip()
+                                from ocr.addr import merge_address_lists
+                                data["ocr_address"] = merge_address_lists(addr_list, addresses)
                                 data["ocr_total_due"] = str(first_amount)
 
                             except Exception as e:
