@@ -8,7 +8,14 @@ import img2pdf
 import traceback
 from pathlib import Path
 from datetime import datetime
+from urllib.parse import urljoin
+import html
 
+from openpyxl import Workbook, load_workbook
+
+import pytesseract
+import cv2
+import numpy as np
 import pandas as pd
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
@@ -18,17 +25,23 @@ import playwright.async_api as pw
 
 from dashboard.utils.state import stop_scraper_flag 
 
+try:
+    from ocr.realestate_ocr_extractor import extract_re_fields_from_image
+except Exception:
+    extract_re_fields_from_image = None
+
 load_dotenv()
 console = Console()
 
 # ---------- Config -------------------------------------------------------------
 HEADLESS = True if os.getenv("HEADLESS", "False").lower() in ("true", "yes") else False
+WIDTH, HEIGHT = os.getenv("RES", "1920x1080").split("x")
 STATE_FILE = Path("cookies.json")
 TAX_EMAIL = os.getenv("GSCCCA_USERNAME")
 TAX_PASSWORD = os.getenv("GSCCCA_PASSWORD")
 LOCALE = "en-GB"
 TIMEZONE = "UTC"
-VIEWPORT = {"width": 1920, "height": 1080}
+VIEWPORT = {"width": int(WIDTH), "height": int(HEIGHT)}
 UA_DICT = {
     "macos": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
     "linux": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
@@ -36,8 +49,15 @@ UA_DICT = {
 }
 
 UA = UA_DICT.get(os.getenv("OS_NAME"), "windows")
-
 EXTRA_HEADERS = {"Accept-Language": "en-GB,en-US;q=0.9,en;q=0.8"}
+
+# load Tesseract path for Windows if needed
+try:
+    if os.name == "nt":  # Windows
+        pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+except Exception as e:
+    console.print(f"[red]Error setting up Tesseract: {e}[/red]")
+
 
 # ----------- Directories -----------
 BASE_DIR = Path(__file__).parent.absolute() 
@@ -87,7 +107,7 @@ def images_to_pdf(img_paths, pdf_path):
 
 # ---------- Scraper Class -----------------------------------------------------
 class RealEstateIndexScraper:
-    def __init__(self, form_data: dict) -> None:
+    def __init__(self) -> None:
         try:
             self.playwright = None
             self.browser = None
@@ -98,7 +118,7 @@ class RealEstateIndexScraper:
             self.login_url = "https://apps.gsccca.org/login.asp"
             self.realestate_search_url = "https://search.gsccca.org/RealEstate/namesearch.asp"
             self.results = []
-            self.form_data = form_data
+            self.form_data = {}
             
             # Use global constants defined above
             self.pdf_dir = PDF_DIR
@@ -115,13 +135,133 @@ class RealEstateIndexScraper:
 
     async def stop_check(self):
         """ Global stop flag to immediately exit scraping if invoked by user. """
-        if stop_scraper_flag['lien']:
+        if stop_scraper_flag['realestate']:
             console.print("[yellow]Lien Index Scraper received immediate stop signal. Exiting...[/yellow]")
             if self.browser:
                 await self.browser.close()
             if self.playwright:
                 await self.playwright.stop()
-            return
+            raise pw.Error("STOP_REQUESTED")
+
+
+    # ----------------- OCR / FIELD EXTRACTION ----------------- #
+    RE_SKIP_WORDS = ("CANCELLATION", "CANCELLED", "FORECLOSURE", "FORECLOSED")
+
+    def _contains_skip_words(self, text: str) -> bool:
+        up = (text or "").upper()
+        return any(w in up for w in self.RE_SKIP_WORDS)
+
+    def _first_match(self, patterns, text: str) -> str:
+        for pat in patterns:
+            m = re.search(pat, text, re.I | re.S)
+            if m:
+                return (m.group(1) or "").strip()
+        return ""
+
+    def _extract_money(self, text: str) -> str:
+        # prefer bigger amounts; return numeric string without $ and commas
+        monies = re.findall(r"\$\s*([\d,]+(?:\.\d{1,2})?)", text or "")
+        if not monies:
+            return ""
+        def to_float(s):
+            try:
+                return float(s.replace(",", ""))
+            except Exception:
+                return 0.0
+        best = max(monies, key=to_float)
+        return best.replace(",", "").strip()
+
+    def _extract_dates(self, text: str):
+        # returns (mortgage_date, assignment_date) best-effort as raw strings
+        t = text or ""
+
+        # mortgage/original date cues
+        mortgage_patterns = [
+            r"made\s+this\s+\d{1,2}(?:st|nd|rd|th)?\s+day\s+of\s+([A-Za-z]+\s+\d{1,2},\s*\d{4})",
+            r"given\s+on\s+([A-Za-z]+\s+\d{1,2},\s*\d{4})",
+            r"dated\s+([A-Za-z]+\s+\d{1,2},\s*\d{4})",
+            r"dated\s+(\d{1,2}/\d{1,2}/\d{2,4})",
+        ]
+        mortgage_date = self._first_match(mortgage_patterns, t)
+
+        # assignment date cues (often "Filed and Recorded ..." header or "this __ day of ...")
+        assign_patterns = [
+            r"Filed\s+and\s+Recorded\s+([A-Za-z]+\s+\d{1,2},\s*\d{4})",
+            r"Filed\s+and\s+Recorded\s+.*?(\d{1,2}/\d{1,2}/\d{2,4})",
+            r"this\s+\d{1,2}(?:st|nd|rd|th)?\s+day\s+of\s+([A-Za-z]+\s*,\s*\d{4})",
+            r"this\s+\d{1,2}(?:st|nd|rd|th)?\s+day\s+of\s+([A-Za-z]+\s+\d{4})",
+        ]
+        assignment_date = self._first_match(assign_patterns, t)
+
+        return mortgage_date, assignment_date
+
+    def _extract_name(self, text: str) -> str:
+        t = text or ""
+        patterns = [
+            r"grantor\s+is\s+([A-Z][A-Z\s\.,'-]{3,80})",
+            r"Borrower\)?\s*[:\-]?\s*([A-Z][A-Z\s\.,'-]{3,80})",
+            r"\(Borrower\)\s*([A-Z][A-Z\s\.,'-]{3,80})",
+        ]
+        name = self._first_match(patterns, t)
+        # cleanup trailing label words
+        name = re.split(r"\bwhose\b|\bwho\b|\baddress\b|\bherein\b", name, flags=re.I)[0].strip(" ,;")
+        return name
+
+    def _extract_original_lender(self, text: str) -> str:
+        t = text or ""
+        patterns = [
+            r"in\s+favor\s+of\s*\(Lender\)\s*([A-Z][A-Z0-9\s,&\.-]{3,80})",
+            r"\(Lender\)\s*[:\-]?\s*([A-Z][A-Z0-9\s,&\.-]{3,80})",
+            r"Lender\s*[:\-]\s*([A-Z][A-Z0-9\s,&\.-]{3,80})",
+        ]
+        lender = self._first_match(patterns, t)
+        lender = lender.splitlines()[0].strip(" ,;")
+        return lender
+
+    def _extract_property_address(self, text: str, ocr_addresses=None) -> str:
+        t = text or ""
+        patterns = [
+            r"Property\s+Address\W*([\s\S]{0,120}?\bGA\b\s*\d{5}(?:-\d{4})?)",
+            r"located\s+at\s+([\s\S]{0,120}?\bGA\b\s*\d{5}(?:-\d{4})?)",
+            r"whose\s+address\s+is\s+([\s\S]{0,120}?\bGA\b\s*\d{5}(?:-\d{4})?)",
+        ]
+        addr = self._first_match(patterns, t)
+        addr = re.sub(r"\s+", " ", addr).strip(" ,;:-")
+        if addr:
+            return addr
+
+        # fallback: pick first GA ZIP address block from OCR extractor
+        if ocr_addresses:
+            for a in ocr_addresses:
+                if isinstance(a, str) and re.search(r"\bGA\b\s*\d{5}", a, re.I):
+                    return re.sub(r"\s+", " ", a).strip()
+        return ""
+
+    def _extract_re_fields_from_ocr(self, raw_text: str, ocr_json: dict | None) -> dict:
+        # best-effort field extraction for Excel columns
+        mortgage_date, assignment_date = self._extract_dates(raw_text)
+
+        ocr_addresses = []
+        if isinstance(ocr_json, dict):
+            ocr_addresses = ocr_json.get("addresses") or []
+
+        # Mortgage amount: prefer OCR JSON top amount if available
+        mortgage_amount = ""
+        if isinstance(ocr_json, dict):
+            top = (ocr_json.get("amounts") or {}).get("top_by_score") or []
+            if top and isinstance(top[0], dict):
+                mortgage_amount = str(top[0].get("numeric") or "").strip()
+        if not mortgage_amount:
+            mortgage_amount = self._extract_money(raw_text)
+
+        return {
+            "Name": self._extract_name(raw_text),
+            "Mortgage Date (original)": mortgage_date,
+            "Assignment Date": assignment_date,
+            "Original Lender": self._extract_original_lender(raw_text),
+            "Mortgage Amount": mortgage_amount,
+            "Property Address": self._extract_property_address(raw_text, ocr_addresses=ocr_addresses),
+        }
 
 
     async def dump_cookies(self, out_file="cookies.json"):
@@ -225,11 +365,14 @@ class RealEstateIndexScraper:
     async def start_realestate_search(self):
         """Fill the real estate form using the provided parameters."""
         try:
-            print("Conducting search...")
+            print("Executing Real Estate Term search...")
             await self.page.goto(self.realestate_search_url, wait_until="domcontentloaded", timeout=60000)
             await self.page.wait_for_timeout(self.time_sleep())
             await self.check_and_handle_announcement()
+        except Exception as e:
+            console.print(f"[red]Error in start_realestate_search: {e}[/red]")
             
+        try:
             await self.page.wait_for_selector("input[name='txtSearchName']")
             await self.page.wait_for_timeout(self.time_sleep(a=250, b=500))
             await self.page.select_option("select[name='txtPartyType']", self.form_data.get("txtPartyType", "2"))
@@ -263,198 +406,433 @@ class RealEstateIndexScraper:
 
 
     async def get_search_results(self):
+        """Step: Extract ALL document URLs first, then save them to CSV for processing."""
         try:
+            print(f"Loading Real Estate Search results...")
             await self.page.wait_for_timeout(self.time_sleep(a=4000, b=5000))
-            search_name = self.form_data.get("txtSearchName")
+
+            search_name = (self.form_data.get("txtSearchName") or "").strip()
+            safe_search = re.sub(r"[^a-zA-Z0-9]+", "_", search_name).strip("_") or "search"
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+            # session artifacts
+            self.csv_path = os.path.join(self.excel_output_dir, f"{safe_search}_realestate_urls_{ts}.csv")
+            self.excel_path = os.path.join(self.excel_output_dir, f"realestate_index_{safe_search}_{ts}.xlsx")
+
             radios = await self.page.query_selector_all("input[name='rdoEntityName']")
             print("*" * 50)
-            console.print(f"[cyan]Found {len(radios)} result(s) for '{search_name}'[/cyan]")
+            console.print(f"[cyan]Found {len(radios)} entity result(s) for '{search_name}'[/cyan]")
 
-            for i in range(len(radios)):
+            results_df = pd.DataFrame(columns=["url", "status", "search_name", "entity_index", "doc_index"])
+
+            for entity_idx in range(1, len(radios) + 1):
+                # if len(results_df) >= 10:
+                #     break
                 await self.stop_check()
                 try:
-                    # Refreshing radio buttons list to avoid staleness
+                    # Refresh the radios list to avoid staleness
                     current_radios = await self.page.query_selector_all("input[name='rdoEntityName']")
-                    radio = current_radios[i]
-
+                    radio = current_radios[entity_idx - 1] if entity_idx - 1 < len(current_radios) else None
                     if not radio:
-                        console.print(f"[yellow]Radio button {i+1} not found[/yellow]")
+                        console.print(f"[yellow]Radio button for entity {entity_idx} not found[/yellow]")
                         continue
 
                     await radio.scroll_into_view_if_needed()
                     await radio.wait_for_element_state("visible", timeout=10000)
                     await radio.click()
 
+                    # Display Details
                     await self.page.click("#btnDisplayDetails")
                     await self.page.wait_for_load_state("domcontentloaded", timeout=20000)
                     await self.page.wait_for_timeout(self.time_sleep())
+                    await self.check_and_handle_announcement()
 
-                    # Parse documents
-                    await self.parse_documents(search_name, i+1)
+                    # ---- Extract GE/GR document links for this entity (NO navigation here) ----
+                    await self.page.wait_for_timeout(self.time_sleep(a=500, b=1200))
 
-                    # Go back to entity selection
-                    await self.page.go_back()
-                    await self.page.wait_for_load_state("domcontentloaded", timeout=20000)
-                    await self.page.wait_for_timeout(self.time_sleep())
-                
+                    hrefs = await self.page.eval_on_selector_all(
+                        "a[href*='final.asp']",
+                        "els => els.map(e => e.getAttribute('href'))"
+                    )
+
+                    base = "https://search.gsccca.org/RealEstate/"
+                    urls = []
+                    js_pat = re.compile(r"fnSubmitThisForm\('([^']+)'\)")
+
+                    for h in hrefs or []:
+                        if not h:
+                            continue
+                        if "fnSubmitThisForm" in h:
+                            m = js_pat.search(h)
+                            if not m:
+                                continue
+                            rel = html.unescape(m.group(1))
+                            urls.append(urljoin(base, rel))
+                        else:
+                            urls.append(urljoin(base, h))
+
+                    urls = list(dict.fromkeys(urls))  # de-dupe, preserve order
+
+                    console.print(f"[green]Entity {entity_idx}: extracted {len(urls)} document url(s)[/green]")
+
+                    if urls:
+                        tmp_df = pd.DataFrame({
+                            "url": urls,
+                            "status": [""] * len(urls),
+                            "search_name": [search_name] * len(urls),
+                            "entity_index": [entity_idx] * len(urls),
+                            "doc_index": list(range(1, len(urls) + 1)),
+                        })
+                        results_df = pd.concat([results_df, tmp_df], ignore_index=True)
+
+                    # Go back to entity selection page
+                    back_ok = False
+                    try:
+                        await self.page.go_back()
+                        await self.page.wait_for_load_state("domcontentloaded", timeout=20000)
+                        await self.page.wait_for_timeout(self.time_sleep())
+                        back_ok = True
+                    except Exception:
+                        back_ok = False
+
+                    if not back_ok:
+                        # Recovery: go back to search page and re-run the search
+                        console.print("[yellow]Recovery: returning to Real Estate search page and re-searching...[/yellow]")
+                        await self.start_realestate_search()
+                        await self.page.wait_for_timeout(self.time_sleep())
+                        await self.page.wait_for_selector("input[name='rdoEntityName']", timeout=30000)
+
                 except Exception as e:
-                    console.print(f"[red]Error processing entity {i+1}: {e}[/red]")
+                    console.print(f"[red]Error extracting URLs for entity {entity_idx}: {e}[/red]")
                     continue
 
+            # save urls list
+            results_df.drop_duplicates(subset=["url"], inplace=True)
+            results_df.reset_index(drop=True, inplace=True)
+            results_df.to_csv(self.csv_path, index=False)
+            console.print(f"[green]Success -> Search results' URLs saved to CSV at {self.csv_path}[/green]")
+
         except Exception as e:
-            console.print(f"[red]Step 4 error: {e}[/red]")
+            console.print(f"[red]Step get_search_results error: {e}[/red]\n{traceback.format_exc()}")
+
+
+
+    async def process_result_urls(self):
+        """Process all extracted document URLs (CSV) and save results incrementally."""
+        if not getattr(self, "csv_path", None) or not os.path.exists(self.csv_path):
+            console.print(f"[red][ERROR] CSV URL list not found: {getattr(self, 'csv_path', None)}[/red]")
+            return
+
+        df_urls = pd.read_csv(self.csv_path)
+        if df_urls.empty:
+            console.print(f"[red][ERROR] No URLs found at: {self.csv_path}[/red]")
+            return
+
+        console.print(f"[cyan]Initiating Real Estate data extraction... Total URLs: {len(df_urls)}[/cyan]")
+
+        for idx, row in df_urls.iterrows():
+            if str(row.get("status", "")).strip().lower() == "done":
+                continue
+
+            await self.stop_check()
+
+            url = str(row.get("url", "")).strip()
+            search_name = str(row.get("search_name", "")).strip()
+            entity_idx = int(row.get("entity_index", 0) or 0)
+            doc_idx = int(row.get("doc_index", 0) or 0)
+
+            if not url:
+                df_urls.at[idx, "status"] = "Done"
+                df_urls.to_csv(self.csv_path, index=False)
+                continue
+
+            print("-" * 50)
+            console.print(f"[green]{idx + 1}. Processing Entity {entity_idx}, Doc {doc_idx}[/green]")
+            console.print(f"[blue]URL: {url}[/blue]")
+
+            try:
+                await self.page.goto(url, wait_until="domcontentloaded", timeout=60000)
+                await self.page.wait_for_timeout(self.time_sleep())
+                await self.check_and_handle_announcement()
+
+                data = await self.parse_realestate_data(
+                    search_name=search_name,
+                    entity_idx=entity_idx,
+                    doc_idx=doc_idx,
+                    source_url=url,
+                )
+
+                if data is None:
+                    console.print(f"[yellow]Skipped (cancelled/foreclosed) -> {row['url']}[/yellow]")
+                elif data:
+                    self.results.append(data)
+                    await self._append_result_to_excel(data)
+                    console.print(f"[cyan]Saved record for Entity {entity_idx}, Doc {doc_idx}[/cyan]")
+                else:
+                    console.print(f"[yellow]No data extracted for Entity {entity_idx}, Doc {doc_idx}[/yellow]")
+
+                df_urls.at[idx, "status"] = "Done"
+                df_urls.to_csv(self.csv_path, index=False)
+
+            except Exception as e:
+                console.print(f"[red]Error processing URL {url}: {e}[/red]\n{traceback.format_exc()}")
+                # keep it un-done for resume
+                continue
+
+
+    async def parse_realestate_data(self, search_name: str, entity_idx: int, doc_idx: int, source_url: str):
+        """Parse one Real Estate document detail page and generate a PDF from the HTML5 viewer."""
+        await self.stop_check()
+
+        data = {
+            "Search Name": search_name,
+            "Entity Index": entity_idx,
+            "Doc Index": doc_idx,
+            "Source URL": source_url,
+        }
+
+        popup = None
+        try:
+            html_text = await self.page.content()
+            soup = BeautifulSoup(html_text, "html.parser")
+
+            # ---------- PDF Viewer URL Extraction ----------
+            viewer_script = soup.find("script", string=lambda t: t and "ViewImage" in t)
+            if not viewer_script or not viewer_script.string:
+                data["PDF Viewer URL"] = "ADD_TAG"
+                return data
+
+            script_text = viewer_script.string
+
+            # NOTE: Keep existing tags/vars where possible; placeholders if missing
+            reid_match = re.search(r"var iREID\s*=\s*(\d+);", script_text)  # RealEstate id
+            if not reid_match:
+                data["PDF Viewer URL"] = "ADD_TAG"
+                return data
+
+            reid = reid_match.group(1)
+
+            # These vars exist in your current scraper; if any missing, use placeholder.
+            def _pick(pattern: str, placeholder: str = "ADD_TAG") -> str:
+                m = re.search(pattern, script_text)
+                return m.group(1) if m else placeholder
+
+            county = _pick(r"var county\s*=\s*\"(\d+)\"")
+            book = _pick(r"var book\s*=\s*\"(\d+)\"")
+            page_num = _pick(r"var page\s*=\s*\"(\d+)\"")
+            userid = _pick(r"var user\s*=\s*(\d+)")
+            appid = _pick(r"var appid\s*=\s*(\d+)")
+            data["Book"] = book
+            data["Page"] = page_num
+
+            viewer_url = (
+                "https://search.gsccca.org/Imaging/HTML5Viewer.aspx?"  # viewer base
+                f"id={reid}&key1={book}&key2={page_num}&county={county}&userid={userid}&appid={appid}"
+            )
+            data["PDF Viewer URL"] = viewer_url
+
+            popup = await self.page.context.new_page()
+            await popup.goto(viewer_url, wait_until="domcontentloaded", timeout=60000)
+            await popup.wait_for_timeout(6000)
+
+            # --- Collect thumbnails/pages ---
+            thumb_links = await popup.query_selector_all("a[id*='lvThumbnails_lnkThumbnail']")
+            pages_count = len(thumb_links)
+            data["Pages"] = pages_count
+
+            if pages_count == 0:
+                console.print("[yellow]No thumbnails found in viewer[/yellow]")
+                data["Real Estate PDF"] = ""
+                return data
+
+            screenshot_paths = []
+
+            # Try to set fit window once (best-effort)
+            try:
+                await popup.wait_for_selector("td.vtm_zoomSelectCell select", timeout=10000)
+                await popup.select_option("td.vtm_zoomSelectCell select", "fitwindow")
+                await popup.wait_for_timeout(1500)
+            except Exception:
+                pass
+
+            # Rotate right once (best-effort, matches lien flow)
+            try:
+                await popup.locator('img[title="Rotate Right"]').click()
+                await popup.wait_for_timeout(1000)
+            except Exception:
+                pass
+
+            await popup.wait_for_selector("div.vtm_imageClipper canvas", timeout=20000, state="attached")
+            canvas = await popup.query_selector("div.vtm_imageClipper canvas")
+
+            safe_base = f"RE_Entity_{entity_idx}_Doc_{doc_idx}"
+            # Best effort: read header for book/page
+            try:
+                header_text = await popup.inner_text("#lblHeader")
+                m = re.search(r"Book\s+(\d+)\s+Page\s+(\d+)", header_text)
+                if m:
+                    safe_base = f"RE_Book_{m.group(1)}_Page_{m.group(2)}_Entity_{entity_idx}_Doc_{doc_idx}"
+            except Exception:
+                pass
+
+            await self.stop_check()
+            try:
+                await popup.wait_for_timeout(self.time_sleep())
+                if not canvas:
+                    console.print("[yellow]Canvas not found for screenshot[/yellow]")
+
+                screenshot_path = Path(os.path.join(self.pdf_dir, f"{safe_base}_Page_{page_num}.png"))
+                await canvas.screenshot(path=str(screenshot_path), timeout=30000)
+                screenshot_paths.append(screenshot_path)
+            except Exception as e:
+                console.print(f"[red]Error processing thumbnail: {e}[/red]")
+
+            if not screenshot_paths:
+                data["Real Estate PDF"] = ""
+                return data
+
+            pdf_path = Path(os.path.join(self.pdf_dir, f"{safe_base}.pdf"))
+            images_to_pdf(screenshot_paths, pdf_path)
+
+            # cleanup pngs
+            # for p in screenshot_paths:
+            #     try:
+            #         os.remove(p)
+            #     except FileNotFoundError:
+            #         pass
+
+            data["Real Estate PDF"] = str(pdf_path)
+
+            # Optional OCR (placeholder tag if not needed / not implemented here)
+            # ---------- OCR Extraction (like lien scraper) ----------
+            ocr_raw_parts = []
+            ocr_json = None
+            try:
+                ocr_raw_text = "\n\n".join(ocr_raw_parts).strip()
+                data["OCR Raw Text"] = ocr_raw_text if ocr_raw_text else ""
+
+                # Skip cancelled/foreclosed docs
+                if self._contains_skip_words(data.get("OCR Raw Text", "")):
+                    data["SKIP_REASON"] = "CANCELLED/FORECLOSED"
+                    return None
+
+                # Skip cancelled/foreclosed docs (using OCR engine dict result)
+                if extract_re_fields_from_image and screenshot_paths:
+                    fields = extract_re_fields_from_image(
+                        img_path=str(screenshot_paths[0]),        # or loop all pages if you want later
+                        use_paddle=False,       # or hardcode True/False
+                        cache_dir=".re_ocr_cache",                # optional cache
+                        debug=False
+                    )
+
+                    # if the OCR layer says skip — skip it
+                    if fields.get("SKIP_REASON"):
+                        data["SKIP_REASON"] = fields["SKIP_REASON"]
+                        return None
+
+                    data.update(fields)
+                else:
+                    # fallback to your existing logic
+                    fields = self._extract_re_fields_from_ocr(raw_text=data.get("OCR Raw Text",""), ocr_json=ocr_json)
+                    data.update(fields)
+
+            except Exception as e:
+                console.print(f"[yellow]OCR extraction failed: {e}[/yellow]")
+                data["OCR Raw Text"] = data.get("OCR Raw Text","") or ""
+
+            return data
+
+        except Exception as e:
+            console.print(f"[bold red]Fatal error in parse_realestate_data: {e}[/bold red]\n{traceback.format_exc()}")
+            return data
+        finally:
+            try:
+                if popup and popup != self.page:
+                    await popup.close()
+            except Exception:
+                pass
 
 
     async def parse_documents(self, search_name: str, entity_idx: int):
-        try:
-            links = await self.page.query_selector_all("a[href*='final.asp']")
-            console.print(f"Found {len(links)} GE/GR document links for entity {entity_idx}")
+        """DEPRECATED: kept for backward-compat; use get_search_results() + process_result_urls()."""
+        console.print("[yellow]parse_documents() is deprecated. URLs are now extracted first, then processed from CSV.[/yellow]")
+        return
 
-            if not links:
-                console.print(f"[yellow]No document links found for entity {entity_idx}[/yellow]")
-                return
 
-            hrefs = []
-            for link in links:
-                href = await link.get_attribute("href")
-                if href:
-                    if "fnSubmitThisForm" in href:
-                        inner = href.split("fnSubmitThisForm('")[1].split("')")[0]
-                        pdf_url = f"https://search.gsccca.org/RealEstate/{inner}"
-                    else:
-                        pdf_url = href
-                    hrefs.append(pdf_url)
+    def _excel_safe(self, v):
+        if v is None:
+            return ""
+        if isinstance(v, str):
+            return v.replace("\x00", "").strip()
+        return v
 
-            for i, pdf_url in enumerate(hrefs):
-                try:
-                    await self.stop_check()
-                    print("-" * 30)
-                    console.print(f"[green]{i + 1}. Opening doc for entity #{entity_idx}[/green]")
-                    await self.page.goto(pdf_url, wait_until="domcontentloaded", timeout=30000)
-                    await self.page.wait_for_timeout(self.time_sleep())
-                    await self.check_and_handle_announcement()
+    async def _append_result_to_excel(self, data: dict):
+        """Append ONE row to an Excel file (atomic write), similar to lien scraper."""
+        if not getattr(self, "excel_path", None):
+            # fallback
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            self.excel_path = os.path.join(self.excel_output_dir, f"realestate_index_{ts}.xlsx")
 
-                    # ---------- PDF Extraction ----------
-                    html = await self.page.content()
-                    soup = BeautifulSoup(html, "html.parser")
-                    viewer_script = soup.find("script", string=lambda t: t and "ViewImage" in t)
-                    if viewer_script:
-                        script_text = viewer_script.string
-                        match = re.search(r'var iREID\s*=\s*(\d+);', script_text)
-                        if match:
-                            reid = match.group(1)
-                            county = re.search(r'var county\s*=\s*"(\d+)"', script_text).group(1)
-                            book = re.search(r'var book\s*=\s*"(\d+)"', script_text).group(1)
-                            page_num = re.search(r'var page\s*=\s*"(\d+)"', script_text).group(1)
-                            userid = re.search(r'var user\s*=\s*(\d+)', script_text).group(1)
-                            appid = re.search(r'var appid\s*=\s*(\d+)', script_text).group(1)
+        headers = [
+            "Name",
+            "Mortgage Date (original)",
+            "Assignment Date",
+            "Original Lender",
+            "Mortgage Amount",
+            "Property Address",
+            "Search Name",
+            "Entity Index",
+            "Doc Index",
+            "Book",
+            "Page",
+            "Pages",
+            "PDF Viewer URL",
+            "Source URL",
+            "View PDF",
+        ]
 
-                            viewer_url = (
-                                f"https://search.gsccca.org/Imaging/HTML5Viewer.aspx?" \
-                                f"id={reid}&key1={book}&key2={page_num}&county={county}&userid={userid}&appid={appid}"
-                            )
+        row_vals = []
+        for h in headers:
+            if h == "View PDF":
+                pdf_path = str(data.get("Real Estate PDF", "") or "")
+                if pdf_path:
+                    pdf_name = os.path.basename(pdf_path)
+                    view_path = pdf_path.replace(os.sep, "/")
+                    row_vals.append(f'=HYPERLINK("file:///{view_path}", "{pdf_name}")')
+                else:
+                    row_vals.append("")
+            else:
+                row_vals.append(self._excel_safe(data.get(h, "")))
 
-                            popup = await self.page.context.new_page()
-                            await popup.goto(viewer_url, wait_until="domcontentloaded", timeout=50000)
-                            await popup.wait_for_timeout(6000)
+        if os.path.exists(self.excel_path):
+            wb = load_workbook(self.excel_path)
+            ws = wb.active
+        else:
+            wb = Workbook()
+            ws = wb.active
+            ws.title = "Real Estate Data"
+            ws.append(headers)
 
-                    # --- Collect thumbnails ---
-                    thumb_links = await popup.query_selector_all("a[id*='lvThumbnails_lnkThumbnail']")
-                    console.print(f"Found {len(thumb_links)} page(s) in viewer...")
+        ws.append(row_vals)
 
-                    screenshot_paths = []
-                    for j, thumb_link in enumerate(thumb_links):
-                        await self.stop_check()
-                        
-                        # Select "Fit Window" option
-                        await popup.wait_for_selector("td.vtm_zoomSelectCell select", timeout=10000)
-                        await popup.select_option("td.vtm_zoomSelectCell select", "fitwindow")
-                        await popup.wait_for_timeout(1500)
-
-                        await popup.wait_for_selector("div.vtm_imageClipper canvas", timeout=10000, state="attached")
-                        await popup.wait_for_timeout(1500)
-                        canvas = await popup.query_selector("canvas")
-                        try:
-                            await thumb_link.click()
-                            await popup.wait_for_timeout(5000)
-
-                            # --- Extract Book & Page Number from header ---
-                            try:
-                                header_text = await popup.inner_text("#lblHeader")
-                                match = re.search(r"Book\s+(\d+)\s+Page\s+(\d+)", header_text)
-                                if match:
-                                    book_no = match.group(1)
-                                    page_no = match.group(2)
-                                    safe_title = f"RE_Book_{book_no}_Page_{page_no}"
-                                else:
-                                    safe_title = f"Entity_{entity_idx}_Doc_{i+1}_Page_{j+1}"
-                            except Exception:
-                                safe_title = f"Entity_{entity_idx}_Doc_{i+1}_Page_{j+1}"
-
-                            # --- Screenshot canvas and save to PDF ---
-                            try:
-                                if canvas:
-                                    screenshot_path = Path(os.path.join(self.pdf_dir, f"{safe_title}.png"))
-                                    await popup.locator('img[title="Rotate Right"]').click()
-                                    await popup.wait_for_timeout(1500)
-                                    await canvas.screenshot(path=str(screenshot_path), timeout=30000)
-                                    screenshot_paths.append(screenshot_path)
-                                    await popup.wait_for_timeout(2000)
-                                else:
-                                    console.print("[yellow]Canvas not found for screenshot[/yellow]")
-                            except Exception as e:
-                                console.print(f"[red]Error saving PDF for thumbnail {j+1}: {e}[/red]{traceback.format_exc()}")
-
-                        except Exception as e:
-                            console.print(f"[red]Error processing thumbnail {j+1}: {e}[/red]")
-                            continue
-
-                    # Save screenshots to PDF
-                    pdf_path = Path(os.path.join(self.pdf_dir, f"{safe_title}.pdf"))
-                    images_to_pdf(screenshot_paths, pdf_path)
-                    for path in screenshot_paths:
-                        try:
-                            os.remove(path)
-                        except FileNotFoundError:
-                            console.print(f"[yellow]Already missing:[/yellow] {path}")
-                            
-                    # Save result to self.results list
-                    result_data = {
-                        "Search Name": search_name,
-                        "Entity Index": entity_idx,
-                        "Doc Index": i + 1,
-                        "Page Index": j + 1,
-                        "PDF Viewer URL": popup.url,
-                        "Real Estate PDF": str(pdf_path)
-                    }
-                    
-                    self.results.append(result_data)
-
-                    # --- Close popup automatically ---
-                    if popup and popup != self.page:
-                        await popup.close()
-                        await self.page.wait_for_timeout(self.time_sleep())
-                        console.print("-" * 30)
-                
-                except Exception as e:
-                    console.print(f"[red]Error processing document {i+1}: {e}[/red]")
-                    traceback.print_exc()
-                    continue
-
-        except Exception as e:
-            console.print(f"[bold red]Fatal error in parse_documents: {e}[/bold red]")
-            traceback.print_exc()
+        tmp_path = self.excel_path + ".tmp"
+        wb.save(tmp_path)
+        os.replace(tmp_path, self.excel_path)
+        console.print(f"[bold green]Saved record to --> {self.excel_path}[/bold green]")
 
 
     def save_results_to_excel(self, filename_prefix="realestate_index"):
-        """Save results to Excel file in 'Real estate data' folder"""
+        """Legacy full-save. If incremental Excel was used, this simply returns the session excel path."""
+        if getattr(self, "excel_path", None) and os.path.exists(self.excel_path):
+            console.print(f"[green]Session Excel already exists -> {self.excel_path}[/green]")
+            return self.excel_path
+
         if not self.results:
             console.print("[red]No results to save[/red]")
             return None
 
         try:
             df = pd.DataFrame(self.results)
-            # Drop duplicates based on a combination of columns
             df.drop_duplicates(subset=["Search Name", "Real Estate PDF"], inplace=True)
             df.reset_index(drop=True, inplace=True)
 
@@ -464,37 +842,19 @@ class RealEstateIndexScraper:
 
             with pd.ExcelWriter(final_path, engine='openpyxl') as writer:
                 df.to_excel(writer, sheet_name='Real Estate Data', index=False)
-                workbook = writer.book
-                worksheet = writer.sheets['Real Estate Data']
-                for column in worksheet.columns:
-                    max_length = 0
-                    column_letter = column[0].column_letter
-                    for cell in column:
-                        try:
-                            if len(str(cell.value)) > max_length:
-                                max_length = len(str(cell.value))
-                        except:
-                            pass
-                    adjusted_width = min(max_length + 2, 50)
-                    worksheet.column_dimensions[column_letter].width = adjusted_width
 
-            print("-" * 50)
             console.print(f"[green]Real Estate Excel saved -> {final_path}[/green]")
-            file_size = Path(final_path).stat().st_size / 1024
-            console.print(f"[blue]File size: {file_size:.2f} KB[/blue]")
-            console.print(f"[blue]Total records saved: {len(df)}[/blue]")
-            print("-" * 50)
-            
             return final_path
-            
+
         except Exception as e:
             console.print(f"[red]Failed to save Excel: {e}[/red]")
             traceback.print_exc()
             return None
 
 
-    async def scrape(self):
+    async def scrape(self, formdata: dict):
         try:
+            self.form_data = formdata
             self.playwright = await pw.async_playwright().start()
             self.browser = await self.playwright.chromium.launch(
                 headless=HEADLESS,
@@ -507,8 +867,9 @@ class RealEstateIndexScraper:
             )
 
             print("Starting Real Estate Index Scraper...")
+            print(f"Screen Resolution set to --> {WIDTH}x{HEIGHT}")
             context = await self.browser.new_context(
-                storage_state=Path(STATE_FILE) if Path(STATE_FILE).exists() else None,
+                storage_state=STATE_FILE if STATE_FILE.exists() else None,
                 user_agent=UA,
                 locale=LOCALE,
                 timezone_id=TIMEZONE,
@@ -546,6 +907,7 @@ class RealEstateIndexScraper:
             await self.start_realestate_search()
 
             await self.get_search_results()
+            await self.process_result_urls()
 
         except Exception as e:
             console.print(f"[red]Error in scrape method: {e}[/red]")

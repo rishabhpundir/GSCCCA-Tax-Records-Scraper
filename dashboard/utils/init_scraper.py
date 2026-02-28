@@ -102,8 +102,7 @@ def run_lien_scraper(params: dict):
         # else:
         #     print("No lien Excel file found")
     except Exception as e:
-        print(f"Error running lien scraper: {e}")
-        traceback.format_exc()
+        print(f"Error running lien scraper: \n{traceback.format_exc()}")
 
 
 def run_realestate_scraper(params: dict):
@@ -114,8 +113,8 @@ def run_realestate_scraper(params: dict):
         stop_scraper_flag['realestate'] = False
         
         # Run the real estate scraper
-        scraper = RealEstateIndexScraper(params)
-        asyncio.run(scraper.scrape())
+        scraper = RealEstateIndexScraper()
+        asyncio.run(scraper.scrape(params))
 
         if stop_scraper_flag['realestate']:
             print("Real estate scraper stopped by user command.")

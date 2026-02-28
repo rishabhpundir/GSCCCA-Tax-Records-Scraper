@@ -44,10 +44,8 @@ UA_DICT = {
 }
 
 UA = UA_DICT.get(os.getenv("OS_NAME"), "windows")
+EXTRA_HEADERS = {"Accept-Language": "en-GB,en-US;q=0.9,en;q=0.8"}
 
-EXTRA_HEADERS = {
-    "Accept-Language": "en-GB,en-US;q=0.9,en;q=0.8"
-}
 TOTAL_LINE_REGEX = re.compile(r'(TOTAL\s*DUE|TOTALDUE)', re.I)
 AMOUNT_PATTERN = re.compile(
     r'\$\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]+)?|[0-9]+(?:\.[0-9]+)?)'
@@ -218,7 +216,7 @@ class LienIndexScraper:
                 await self.browser.close()
             if self.playwright:
                 await self.playwright.stop()
-            return
+            raise pw.Error("STOP_REQUESTED")
 
 
     async def dump_cookies(self, out_file="cookies.json"):
@@ -358,10 +356,10 @@ class LienIndexScraper:
             await self.page.wait_for_timeout(self.time_sleep())
             await self.page.locator('input[type="button"][value="Search"]').click()
         except Exception as e:
-            print(f"[ERROR] step3_fill_form_dynamic: {e}")
+            print(f"[ERROR] start_search: {e}\n{traceback.format_exc()}")
 
 
-    async def get_search_results(self, email: str = None, password: str = None):
+    async def get_search_results(self):
         """Process ALL rows with Occurs values."""
         print(f"Conducting Lien Search...")
         try:
@@ -520,8 +518,6 @@ class LienIndexScraper:
                                 # Refill the form and search again
                                 await self.start_search()
                                 await self.page.wait_for_selector("table.name_results", timeout=15000)
-                                # Update the search results URL
-                                search_results_url = self.page.url
                                 print(f"[SUCCESS] Recovered by going to name search page and re-searching")
                             except Exception as e:
                                 print(f"[ERROR] Final recovery failed: {e}")

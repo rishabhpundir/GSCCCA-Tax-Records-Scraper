@@ -748,6 +748,7 @@ def process_cv2_image(img: np.ndarray) -> Dict[str, Any]:
         "amounts": amounts,
         "addresses": addresses,
         "description": description,
+        "ocr_data": text,
     }
 
 
